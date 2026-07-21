@@ -63,4 +63,15 @@ export const DEFAULT_CATEGORY_RULES: CategoryRuleSeedEntry[] = [
   { pattern: 'amazon', categorySlug: 'general_merchandise_online_marketplaces' },
   { pattern: 'walmart', categorySlug: 'general_merchandise_superstores' },
   { pattern: 'costco', categorySlug: 'general_merchandise_superstores' },
+
+  // credit card payments (both legs: outflow from checking, inflow on the card)
+  { pattern: 'payment to chase card', categorySlug: 'loan_payments_credit_card_payment' },
+  { pattern: 'thank you', categorySlug: 'loan_payments_credit_card_payment' },
+
+  // recurring services
+  { pattern: 'no-ip', categorySlug: 'general_services_other_general_services' },
+  { pattern: 'simplefin', categorySlug: 'bank_fees_other_bank_fees' },
+
+  // telecom / internet
+  { pattern: 'altafiber', categorySlug: 'rent_and_utilities_internet_and_cable' },
 ];
