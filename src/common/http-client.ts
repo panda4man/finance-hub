@@ -31,7 +31,7 @@ export function resolveBaseUrl(): string {
   if (process.env.FINANCE_HUB_API_URL) {
     return process.env.FINANCE_HUB_API_URL.replace(/\/+$/, '');
   }
-  const port = process.env.PORT ?? '3000';
+  const port = process.env.APP_PORT ?? '3000';
   const host = process.env.PUBLIC_HOST ?? 'localhost';
   return `http://${host}:${port}`;
 }
