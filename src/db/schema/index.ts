@@ -6,4 +6,5 @@ export * from './categories';
 export * from './transactions';
 export * from './transaction-counterparties';
 export * from './sync-runs';
+export * from './app-settings';
 export * from './views';

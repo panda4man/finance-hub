@@ -6,6 +6,7 @@ import { DbModule } from './db/db.module';
 import { LinkModule } from './link/link.module';
 import { SyncModule } from './sync/sync.module';
 import { TransactionsModule } from './transactions/transactions.module';
+import { SetupModule } from './setup/setup.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { TransactionsModule } from './transactions/transactions.module';
     LinkModule,
     SyncModule,
     TransactionsModule,
+    SetupModule,
   ],
 })
 export class AppModule {}

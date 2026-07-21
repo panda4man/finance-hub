@@ -9,35 +9,42 @@ import {
   LinkTokenCreateRequest,
 } from 'plaid';
 import type { Env } from '../config/env.validation';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class PlaidService {
-  readonly client: PlaidApi;
   private readonly countryCodes: CountryCode[];
   private readonly language: string;
-  private readonly redirectUri?: string;
   private readonly webhookUrl?: string;
 
-  constructor(config: ConfigService<Env, true>) {
-    const plaidEnv = config.get<string>('PLAID_ENV');
-    const configuration = new Configuration({
-      basePath: PlaidEnvironments[plaidEnv],
-      baseOptions: {
-        headers: {
-          'PLAID-CLIENT-ID': config.get<string>('PLAID_CLIENT_ID'),
-          'PLAID-SECRET': config.get<string>('PLAID_SECRET'),
-        },
-      },
-    });
-    this.client = new PlaidApi(configuration);
-
+  constructor(
+    private readonly config: ConfigService<Env, true>,
+    private readonly settings: SettingsService,
+  ) {
     this.countryCodes = config
       .get<string>('PLAID_COUNTRY_CODES')
       .split(',')
       .map((code) => code.trim() as CountryCode);
     this.language = config.get<string>('PLAID_LANGUAGE');
-    this.redirectUri = config.get<string | undefined>('PLAID_REDIRECT_URI') || undefined;
     this.webhookUrl = config.get<string | undefined>('PLAID_WEBHOOK_URL') || undefined;
+  }
+
+  /**
+   * Built fresh per call (not cached) so credentials entered via the /setup
+   * page take effect immediately, no restart required.
+   */
+  private async getClient(): Promise<PlaidApi> {
+    const { clientId, secret, env } = await this.settings.getPlaidCredentials();
+    const configuration = new Configuration({
+      basePath: PlaidEnvironments[env],
+      baseOptions: {
+        headers: {
+          'PLAID-CLIENT-ID': clientId,
+          'PLAID-SECRET': secret,
+        },
+      },
+    });
+    return new PlaidApi(configuration);
   }
 
   /**
@@ -45,34 +52,40 @@ export class PlaidService {
    * (re-auth) when `accessToken` is supplied.
    */
   async createLinkToken(userId: string, accessToken?: string): Promise<string> {
+    const [client, { redirectUri }] = await Promise.all([
+      this.getClient(),
+      this.settings.getPlaidCredentials(),
+    ]);
+
     const request: LinkTokenCreateRequest = {
       user: { client_user_id: userId },
       client_name: 'Finance Hub',
       language: this.language,
       country_codes: this.countryCodes,
-      redirect_uri: this.redirectUri,
+      redirect_uri: redirectUri,
       webhook: this.webhookUrl,
-      ...(accessToken
-        ? { access_token: accessToken }
-        : { products: [Products.Transactions] }),
+      ...(accessToken ? { access_token: accessToken } : { products: [Products.Transactions] }),
     };
 
-    const response = await this.client.linkTokenCreate(request);
+    const response = await client.linkTokenCreate(request);
     return response.data.link_token;
   }
 
   async exchangePublicToken(publicToken: string) {
-    const response = await this.client.itemPublicTokenExchange({ public_token: publicToken });
+    const client = await this.getClient();
+    const response = await client.itemPublicTokenExchange({ public_token: publicToken });
     return { accessToken: response.data.access_token, itemId: response.data.item_id };
   }
 
   async getItem(accessToken: string) {
-    const response = await this.client.itemGet({ access_token: accessToken });
+    const client = await this.getClient();
+    const response = await client.itemGet({ access_token: accessToken });
     return response.data.item;
   }
 
   async getInstitution(institutionId: string) {
-    const response = await this.client.institutionsGetById({
+    const client = await this.getClient();
+    const response = await client.institutionsGetById({
       institution_id: institutionId,
       country_codes: this.countryCodes,
     });
@@ -80,12 +93,14 @@ export class PlaidService {
   }
 
   async getAccounts(accessToken: string) {
-    const response = await this.client.accountsGet({ access_token: accessToken });
+    const client = await this.getClient();
+    const response = await client.accountsGet({ access_token: accessToken });
     return response.data.accounts;
   }
 
   async transactionsSync(accessToken: string, cursor?: string) {
-    const response = await this.client.transactionsSync({
+    const client = await this.getClient();
+    const response = await client.transactionsSync({
       access_token: accessToken,
       cursor,
     });

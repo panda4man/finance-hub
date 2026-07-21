@@ -7,8 +7,10 @@ const envSchema = z.object({
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 
-  PLAID_CLIENT_ID: z.string().min(1, 'PLAID_CLIENT_ID is required'),
-  PLAID_SECRET: z.string().min(1, 'PLAID_SECRET is required'),
+  // Optional at boot: can instead be set post-boot via the /setup page
+  // (persisted encrypted in app_settings, DB value wins over these).
+  PLAID_CLIENT_ID: z.string().default(''),
+  PLAID_SECRET: z.string().default(''),
   PLAID_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
   PLAID_COUNTRY_CODES: z.string().default('US'),
   PLAID_LANGUAGE: z.string().default('en'),

@@ -1,10 +1,9 @@
 import { Module } from '@nestjs/common';
 import { SettingsModule } from '../settings/settings.module';
-import { PlaidService } from './plaid.service';
+import { SetupController } from './setup.controller';
 
 @Module({
   imports: [SettingsModule],
-  providers: [PlaidService],
-  exports: [PlaidService],
+  controllers: [SetupController],
 })
-export class PlaidModule {}
+export class SetupModule {}
