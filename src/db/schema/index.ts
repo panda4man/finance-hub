@@ -3,6 +3,7 @@ export * from './institutions';
 export * from './connections';
 export * from './accounts';
 export * from './categories';
+export * from './category-rules';
 export * from './transactions';
 export * from './transaction-counterparties';
 export * from './sync-runs';

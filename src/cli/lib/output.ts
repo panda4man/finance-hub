@@ -1,4 +1,4 @@
-import type { SyncOutcome, SyncRunRecord, TransactionRecord } from '../../common/http-client';
+import type { RecategorizeResult, SyncOutcome, SyncRunRecord, TransactionRecord } from '../../common/http-client';
 
 export function printJson(data: unknown): void {
   console.log(JSON.stringify(data, null, 2));
@@ -74,6 +74,10 @@ export function printTransactionsTable(items: TransactionRecord[]): void {
   for (const item of items) {
     printRow(TRANSACTION_COLUMNS.map((c) => c.value(item)));
   }
+}
+
+export function printRecategorizeResult(result: RecategorizeResult): void {
+  console.log(`Recategorized ${result.updated} of ${result.scanned} transaction(s).`);
 }
 
 export function printTransactionsSummary(

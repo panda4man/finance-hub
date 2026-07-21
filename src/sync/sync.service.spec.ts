@@ -3,9 +3,10 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { eq } from 'drizzle-orm';
 import { Pool } from 'pg';
 import * as schema from '../db/schema';
-import { users, connections, accounts, categories, transactions, syncRuns } from '../db/schema';
+import { users, connections, accounts, categories, categoryRules, transactions, syncRuns } from '../db/schema';
 import { SyncService } from './sync.service';
 import { ConnectionsService } from '../connections/connections.service';
+import { CategorizationService } from '../categorization/categorization.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { SimplefinApiError } from '../simplefin/simplefin-error';
 import type { SimplefinService } from '../simplefin/simplefin.service';
@@ -40,6 +41,7 @@ describe('SyncService (integration)', () => {
     await db.delete(accounts);
     await db.delete(connections);
     await db.delete(users);
+    await db.delete(categoryRules);
     await db.delete(categories);
 
     const [user] = await db.insert(users).values({}).returning({ id: users.id });
@@ -62,10 +64,12 @@ describe('SyncService (integration)', () => {
     });
   });
 
-  function makeService(fetchAccountSetMock: jest.Mock) {
+  async function makeService(fetchAccountSetMock: jest.Mock) {
     const fakeSimplefin = { fetchAccountSet: fetchAccountSetMock } as unknown as SimplefinService;
     const connectionsService = new ConnectionsService(db as never, crypto, fakeSimplefin);
-    return new SyncService(db as never, connectionsService, fakeSimplefin);
+    const categorization = new CategorizationService(db as never);
+    await categorization.reloadCache();
+    return new SyncService(db as never, connectionsService, fakeSimplefin, categorization);
   }
 
   function basePage(overrides: Partial<ProviderSyncPage['accounts'][number]['transactions'][number]> = {}): ProviderSyncPage {
@@ -93,9 +97,9 @@ describe('SyncService (integration)', () => {
     };
   }
 
-  it('upserts accounts and transactions on first sync, leaving categoryId unset', async () => {
+  it('upserts accounts and transactions on first sync, leaving categoryId unset when no rule matches', async () => {
     const fetchMock = jest.fn().mockResolvedValueOnce(basePage());
-    const service = makeService(fetchMock);
+    const service = await makeService(fetchMock);
 
     const result = await service.syncConnection(connectionId, 'manual');
     expect(result.status).toBe('success');
@@ -109,9 +113,26 @@ describe('SyncService (integration)', () => {
     expect(connection.lastSuccessfulSyncAt).not.toBeNull();
   });
 
+  it('sets categoryId from a matching category rule on first sync', async () => {
+    const [category] = await db
+      .insert(categories)
+      .values({ slug: `coffee_test_${Date.now()}`, name: 'Coffee' })
+      .returning({ id: categories.id });
+    await db.insert(categoryRules).values({ pattern: 'coffee shop', categoryId: category.id });
+
+    const fetchMock = jest.fn().mockResolvedValueOnce(basePage());
+    const service = await makeService(fetchMock);
+
+    const result = await service.syncConnection(connectionId, 'manual');
+    expect(result.status).toBe('success');
+
+    const [txn] = await db.select().from(transactions).where(eq(transactions.externalTransactionId, 'txn-1'));
+    expect(txn.categoryId).toBe(category.id);
+  });
+
   it('updates provider-controlled fields on a later sync but never overwrites user-owned fields', async () => {
     const firstFetch = jest.fn().mockResolvedValueOnce(basePage());
-    await makeService(firstFetch).syncConnection(connectionId, 'manual');
+    await (await makeService(firstFetch)).syncConnection(connectionId, 'manual');
 
     // Simulate the user categorizing/annotating/hiding this transaction.
     const [category] = await db
@@ -126,7 +147,7 @@ describe('SyncService (integration)', () => {
     const secondFetch = jest
       .fn()
       .mockResolvedValueOnce(basePage({ amount: '12.50', name: 'Coffee Shop Updated' }));
-    const result = await makeService(secondFetch).syncConnection(connectionId, 'manual');
+    const result = await (await makeService(secondFetch)).syncConnection(connectionId, 'manual');
     expect(result.status).toBe('success');
 
     const [txn] = await db.select().from(transactions).where(eq(transactions.externalTransactionId, 'txn-1'));
@@ -138,9 +159,36 @@ describe('SyncService (integration)', () => {
     expect(txn.isHidden).toBe(true);
   });
 
+  it('recomputes categoryId on a re-sync (conflict-update path) without touching userCategoryId', async () => {
+    const [ruleCategory] = await db
+      .insert(categories)
+      .values({ slug: `coffee_resync_${Date.now()}`, name: 'Coffee' })
+      .returning({ id: categories.id });
+    await db.insert(categoryRules).values({ pattern: 'coffee shop', categoryId: ruleCategory.id });
+
+    const firstFetch = jest.fn().mockResolvedValueOnce(basePage());
+    await (await makeService(firstFetch)).syncConnection(connectionId, 'manual');
+
+    const [userCategory] = await db
+      .insert(categories)
+      .values({ slug: `custom_resync_${Date.now()}`, name: 'Custom', kind: 'custom' })
+      .returning({ id: categories.id });
+    await db
+      .update(transactions)
+      .set({ userCategoryId: userCategory.id })
+      .where(eq(transactions.externalTransactionId, 'txn-1'));
+
+    const secondFetch = jest.fn().mockResolvedValueOnce(basePage({ name: 'Coffee Shop Updated' }));
+    await (await makeService(secondFetch)).syncConnection(connectionId, 'manual');
+
+    const [txn] = await db.select().from(transactions).where(eq(transactions.externalTransactionId, 'txn-1'));
+    expect(txn.categoryId).toBe(ruleCategory.id);
+    expect(txn.userCategoryId).toBe(userCategory.id);
+  });
+
   it('creates no rows and records a failed sync run when the fetch fails', async () => {
     const fetchMock = jest.fn().mockRejectedValueOnce(new Error('boom'));
-    const service = makeService(fetchMock);
+    const service = await makeService(fetchMock);
 
     await expect(service.syncConnection(connectionId, 'manual')).rejects.toBeDefined();
 
@@ -158,7 +206,7 @@ describe('SyncService (integration)', () => {
     const fetchMock = jest
       .fn()
       .mockRejectedValueOnce(new SimplefinApiError(403, [{ code: 'con.auth', msg: 're-auth needed' }]));
-    const service = makeService(fetchMock);
+    const service = await makeService(fetchMock);
 
     await expect(service.syncConnection(connectionId, 'manual')).rejects.toBeDefined();
 

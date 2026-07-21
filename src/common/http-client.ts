@@ -152,6 +152,15 @@ export async function syncStatus(): Promise<SyncRunRecord[]> {
   return apiFetch<SyncRunRecord[]>('/internal/sync/status');
 }
 
+export interface RecategorizeResult {
+  scanned: number;
+  updated: number;
+}
+
+export async function recategorizeAll(): Promise<RecategorizeResult> {
+  return apiFetch<RecategorizeResult>('/internal/categorization/recategorize', { method: 'POST' });
+}
+
 export async function listTransactions(
   params: ListTransactionsQuery = {},
 ): Promise<ListTransactionsResult> {

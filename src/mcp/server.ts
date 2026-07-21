@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { loadEnv } from '../common/env';
-import { ApiError, listTransactions, syncRun, syncStatus } from '../common/http-client';
+import { ApiError, listTransactions, recategorizeAll, syncRun, syncStatus } from '../common/http-client';
 
 loadEnv();
 
@@ -70,6 +70,24 @@ server.registerTool(
   async ({ limit, offset, sortBy, order }) => {
     try {
       const result = await listTransactions({ limit, offset, sortBy, order });
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { isError: true, content: [{ type: 'text' as const, text: errorMessage(err) }] };
+    }
+  },
+);
+
+server.registerTool(
+  'recategorize_transactions',
+  {
+    title: 'Recategorize all transactions',
+    description:
+      'Re-run the category-rule engine against every transaction (backfill for newly added/changed rules).',
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const result = await recategorizeAll();
       return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
     } catch (err) {
       return { isError: true, content: [{ type: 'text' as const, text: errorMessage(err) }] };

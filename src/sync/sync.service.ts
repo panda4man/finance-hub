@@ -4,6 +4,7 @@ import { DB, Database } from '../db/db.module';
 import { connections, accounts, transactions, syncRuns, type SyncTrigger } from '../db/schema';
 import { ConnectionsService } from '../connections/connections.service';
 import { SimplefinService } from '../simplefin/simplefin.service';
+import { CategorizationService } from '../categorization/categorization.service';
 import { isAuthError, isTransientSimplefinError, SimplefinApiError } from '../simplefin/simplefin-error';
 import type { ProviderSyncPage } from '../simplefin/simplefin.types';
 
@@ -40,6 +41,7 @@ export class SyncService {
     @Inject(DB) private readonly db: Database,
     private readonly connectionsService: ConnectionsService,
     private readonly simplefin: SimplefinService,
+    private readonly categorization: CategorizationService,
   ) {}
 
   async syncAllActiveConnections(trigger: SyncTrigger): Promise<SyncOutcome[]> {
@@ -242,6 +244,7 @@ export class SyncService {
           date: t.date,
           datetime: t.datetime,
           name: t.name,
+          categoryId: this.categorization.categorize({ name: t.name, amount: t.amount }),
           removedAt: null,
           rawPayload: t.raw,
           lastModifiedAt: new Date(),
@@ -264,11 +267,15 @@ export class SyncService {
           date: excludedValue(transactions.date),
           datetime: excludedValue(transactions.datetime),
           name: excludedValue(transactions.name),
+          categoryId: excludedValue(transactions.categoryId),
           removedAt: null,
           rawPayload: excludedValue(transactions.rawPayload),
           lastModifiedAt: excludedValue(transactions.lastModifiedAt),
           updatedAt: new Date(),
-          // deliberately omitted: categoryId, userCategoryId, userNotes, isHidden (user/auto-owned fields)
+          // categoryId is system/engine-owned and is recomputed on every sync so rule
+          // improvements retroactively re-apply. userCategoryId/userNotes/isHidden are
+          // genuinely user-owned and must never be clobbered by a sync.
+          // deliberately omitted: userCategoryId, userNotes, isHidden
         },
       });
   }
