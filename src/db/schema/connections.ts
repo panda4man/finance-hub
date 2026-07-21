@@ -1,27 +1,31 @@
 import { pgTable, uuid, text, timestamp, index } from 'drizzle-orm/pg-core';
 import { users } from './users';
-import { institutions } from './institutions';
 
-export const plaidItemStatusValues = [
+export const connectionStatusValues = [
   'active',
   'login_required',
   'pending_expiration',
   'revoked',
   'error',
 ] as const;
-export type PlaidItemStatus = (typeof plaidItemStatusValues)[number];
+export type ConnectionStatus = (typeof connectionStatusValues)[number];
 
-export const plaidItems = pgTable(
-  'plaid_items',
+/**
+ * One claimed provider credential. A single credential can back multiple
+ * institutions (e.g. a SimpleFin Access URL commonly aggregates several
+ * banks) — see `accounts.institutionId`, not this table, for the
+ * per-institution relationship.
+ */
+export const connections = pgTable(
+  'connections',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    institutionId: uuid('institution_id').references(() => institutions.id),
-    plaidItemId: text('plaid_item_id').notNull().unique(),
-    accessTokenEncrypted: text('access_token_encrypted').notNull(),
-    transactionsCursor: text('transactions_cursor'),
+    provider: text('provider').notNull(),
+    credentialEncrypted: text('credential_encrypted'),
+    syncCursor: text('sync_cursor'),
     status: text('status').notNull().default('active'),
     statusDetail: text('status_detail'),
     consentExpirationTime: timestamp('consent_expiration_time', { withTimezone: true }),
@@ -30,5 +34,5 @@ export const plaidItems = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('idx_plaid_items_user').on(t.userId), index('idx_plaid_items_status').on(t.status)],
+  (t) => [index('idx_connections_user').on(t.userId), index('idx_connections_status').on(t.status)],
 );

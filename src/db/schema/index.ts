@@ -1,6 +1,6 @@
 export * from './users';
 export * from './institutions';
-export * from './plaid-items';
+export * from './connections';
 export * from './accounts';
 export * from './categories';
 export * from './transactions';

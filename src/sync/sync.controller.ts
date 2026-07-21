@@ -8,15 +8,15 @@ export class SyncController {
   constructor(private readonly sync: SyncService) {}
 
   @Post('run')
-  async run(@Query('itemId') itemId?: string) {
-    if (itemId) {
-      return this.sync.syncItemSafely(itemId, 'manual');
+  async run(@Query('connectionId') connectionId?: string) {
+    if (connectionId) {
+      return this.sync.syncConnectionSafely(connectionId, 'manual');
     }
-    return this.sync.syncAllActiveItems('manual');
+    return this.sync.syncAllActiveConnections('manual');
   }
 
   @Get('status')
   async status() {
-    return this.sync.getLatestRunsPerItem();
+    return this.sync.getLatestRunsPerConnection();
   }
 }

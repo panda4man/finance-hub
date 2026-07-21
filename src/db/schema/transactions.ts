@@ -11,7 +11,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { accounts } from './accounts';
-import { plaidItems } from './plaid-items';
+import { connections } from './connections';
 import { categories } from './categories';
 import { tsvector } from './custom-types';
 
@@ -22,12 +22,12 @@ export const transactions = pgTable(
     accountId: uuid('account_id')
       .notNull()
       .references(() => accounts.id, { onDelete: 'cascade' }),
-    itemId: uuid('item_id')
+    connectionId: uuid('connection_id')
       .notNull()
-      .references(() => plaidItems.id, { onDelete: 'cascade' }),
-    plaidTransactionId: text('plaid_transaction_id').notNull().unique(),
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    externalTransactionId: text('external_transaction_id').notNull().unique(),
     pending: boolean('pending').notNull().default(false),
-    pendingPlaidTransactionId: text('pending_plaid_transaction_id'),
+    pendingExternalTransactionId: text('pending_external_transaction_id'),
 
     // money & timing
     amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
@@ -46,12 +46,11 @@ export const transactions = pgTable(
     website: text('website'),
     paymentChannel: text('payment_channel'),
 
-    // raw Plaid category data, preserved verbatim
-    plaidCategoryLegacy: text('plaid_category_legacy').array(),
-    plaidCategoryIdLegacy: text('plaid_category_id_legacy'),
-    plaidPfcPrimary: text('plaid_pfc_primary'),
-    plaidPfcDetailed: text('plaid_pfc_detailed'),
-    plaidPfcConfidence: text('plaid_pfc_confidence'),
+    // categorization the source provider supplied, if any (null when the
+    // provider doesn't categorize transactions itself)
+    sourceCategoryPrimary: text('source_category_primary'),
+    sourceCategoryDetailed: text('source_category_detailed'),
+    sourceCategoryConfidence: text('source_category_confidence'),
 
     // normalized category layer
     categoryId: uuid('category_id').references(() => categories.id),
@@ -67,7 +66,8 @@ export const transactions = pgTable(
     locationLat: numeric('location_lat', { precision: 9, scale: 6 }),
     locationLon: numeric('location_lon', { precision: 9, scale: 6 }),
 
-    // soft-delete for /transactions/sync "removed"
+    // soft-delete when the source provider reports this record gone (not
+    // every provider signals deletions — see SimpleFin adapter notes)
     removedAt: timestamp('removed_at', { withTimezone: true }),
 
     // full-text search hook; a pgvector embedding column can be added later
@@ -84,7 +84,7 @@ export const transactions = pgTable(
   },
   (t) => [
     index('idx_txn_account_date').on(t.accountId, sql`${t.date} desc`),
-    index('idx_txn_item_date').on(t.itemId, sql`${t.date} desc`),
+    index('idx_txn_connection_date').on(t.connectionId, sql`${t.date} desc`),
     index('idx_txn_date').on(sql`${t.date} desc`),
     index('idx_txn_category').on(t.categoryId),
     index('idx_txn_user_category').on(t.userCategoryId),

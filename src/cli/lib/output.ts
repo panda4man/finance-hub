@@ -7,12 +7,12 @@ export function printJson(data: unknown): void {
 function formatSyncOutcome(outcome: SyncOutcome): string {
   if (outcome.status === 'success') {
     return (
-      `[${outcome.itemDbId}] success — ` +
+      `[${outcome.connectionId}] success — ` +
       `pages=${outcome.pagesFetched} added=${outcome.added} modified=${outcome.modified} ` +
       `removed=${outcome.removed} accounts=${outcome.accountsUpserted}`
     );
   }
-  return `[${outcome.itemDbId}] failed — ${outcome.error}`;
+  return `[${outcome.connectionId}] failed — ${outcome.error}`;
 }
 
 export function printSyncOutcomes(outcome: SyncOutcome | SyncOutcome[]): void {
@@ -29,7 +29,7 @@ export function printSyncOutcomes(outcome: SyncOutcome | SyncOutcome[]): void {
 function formatSyncRun(run: SyncRunRecord): string {
   const finished = run.finishedAt ?? 'in progress';
   return (
-    `[${run.itemId ?? 'unknown'}] ${run.status} (${run.trigger}) ` +
+    `[${run.connectionId ?? 'unknown'}] ${run.status} (${run.trigger}) ` +
     `started=${run.startedAt} finished=${finished} ` +
     `added=${run.addedCount} modified=${run.modifiedCount} removed=${run.removedCount}`
   );

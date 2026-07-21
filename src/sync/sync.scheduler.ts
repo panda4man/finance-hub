@@ -5,7 +5,7 @@ import { CronJob } from 'cron';
 import { inArray } from 'drizzle-orm';
 import type { Env } from '../config/env.validation';
 import { DB, Database } from '../db/db.module';
-import { plaidItems } from '../db/schema';
+import { connections } from '../db/schema';
 import { SyncService } from './sync.service';
 
 const NIGHTLY_SYNC_JOB_NAME = 'nightly-sync';
@@ -49,9 +49,9 @@ export class SyncScheduler implements OnModuleInit {
 
     this.running = true;
     try {
-      const results = await this.sync.syncAllActiveItems('scheduled');
-      const summary = results.map((r) => `${r.itemDbId.slice(0, 8)}:${r.status}`).join(', ');
-      this.logger.log(`Scheduled sync complete for ${results.length} item(s): ${summary}`);
+      const results = await this.sync.syncAllActiveConnections('scheduled');
+      const summary = results.map((r) => `${r.connectionId.slice(0, 8)}:${r.status}`).join(', ');
+      this.logger.log(`Scheduled sync complete for ${results.length} connection(s): ${summary}`);
     } catch (err) {
       this.logger.error(`Scheduled sync run failed unexpectedly: ${(err as Error).message}`);
     } finally {
@@ -60,19 +60,19 @@ export class SyncScheduler implements OnModuleInit {
   }
 
   private async runCatchUpSyncIfStale(): Promise<void> {
-    const activeItems = await this.db
-      .select({ lastSuccessfulSyncAt: plaidItems.lastSuccessfulSyncAt })
-      .from(plaidItems)
-      .where(inArray(plaidItems.status, ['active', 'pending_expiration']));
+    const activeConnections = await this.db
+      .select({ lastSuccessfulSyncAt: connections.lastSuccessfulSyncAt })
+      .from(connections)
+      .where(inArray(connections.status, ['active', 'pending_expiration']));
 
     const now = Date.now();
-    const isStale = activeItems.some(
-      (item) =>
-        !item.lastSuccessfulSyncAt ||
-        now - item.lastSuccessfulSyncAt.getTime() > STALE_SYNC_THRESHOLD_MS,
+    const isStale = activeConnections.some(
+      (connection) =>
+        !connection.lastSuccessfulSyncAt ||
+        now - connection.lastSuccessfulSyncAt.getTime() > STALE_SYNC_THRESHOLD_MS,
     );
 
-    if (activeItems.length > 0 && isStale) {
+    if (activeConnections.length > 0 && isStale) {
       this.logger.log('Last successful sync is stale; running catch-up sync on boot');
       void this.runScheduledSync();
     }

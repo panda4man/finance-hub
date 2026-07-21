@@ -21,16 +21,16 @@ const server = new McpServer({
 server.registerTool(
   'sync_run',
   {
-    title: 'Run Plaid sync',
+    title: 'Run SimpleFin sync',
     description:
-      'Trigger a Plaid transaction sync. Pass itemId to sync a single item, or omit it to sync all active items.',
+      'Trigger a SimpleFin transaction sync. Pass connectionId to sync a single connection, or omit it to sync all active connections.',
     inputSchema: {
-      itemId: z.string().uuid().optional(),
+      connectionId: z.string().uuid().optional(),
     },
   },
-  async ({ itemId }) => {
+  async ({ connectionId }) => {
     try {
-      const result = await syncRun(itemId);
+      const result = await syncRun(connectionId);
       return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
     } catch (err) {
       return { isError: true, content: [{ type: 'text' as const, text: errorMessage(err) }] };
@@ -42,7 +42,7 @@ server.registerTool(
   'sync_status',
   {
     title: 'Get sync status',
-    description: 'Get the latest sync run per Plaid item.',
+    description: 'Get the latest sync run per connection.',
     inputSchema: {},
   },
   async () => {

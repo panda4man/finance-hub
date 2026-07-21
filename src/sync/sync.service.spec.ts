@@ -3,25 +3,30 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { eq } from 'drizzle-orm';
 import { Pool } from 'pg';
 import * as schema from '../db/schema';
-import { users, institutions, plaidItems, accounts, categories, transactions, syncRuns } from '../db/schema';
+import { users, connections, accounts, categories, transactions, syncRuns } from '../db/schema';
 import { SyncService } from './sync.service';
-import type { ItemsService } from '../items/items.service';
-import type { PlaidService } from '../plaid/plaid.service';
+import { ConnectionsService } from '../connections/connections.service';
+import { CryptoService } from '../crypto/crypto.service';
+import { SimplefinApiError } from '../simplefin/simplefin-error';
+import type { SimplefinService } from '../simplefin/simplefin.service';
+import type { ProviderSyncPage } from '../simplefin/simplefin.types';
 
 const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgres://finance:finance@localhost:55432/finance_hub';
+const TEST_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
 
 describe('SyncService (integration)', () => {
   let pool: Pool;
   let db: ReturnType<typeof drizzle<typeof schema>>;
-  let itemDbId: string;
-  let accountPlaidId: string;
-  let coffeeCategoryId: string;
+  let crypto: CryptoService;
+  let connectionId: string;
+  let accountExternalId: string;
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: TEST_DATABASE_URL });
     db = drizzle(pool, { schema });
     await migrate(db, { migrationsFolder: './drizzle' });
+    crypto = new CryptoService({ get: () => TEST_ENCRYPTION_KEY } as never);
   });
 
   afterAll(async () => {
@@ -33,216 +38,132 @@ describe('SyncService (integration)', () => {
     await db.delete(transactions);
     await db.delete(syncRuns);
     await db.delete(accounts);
-    await db.delete(plaidItems);
-    await db.delete(institutions);
+    await db.delete(connections);
     await db.delete(users);
     await db.delete(categories);
 
     const [user] = await db.insert(users).values({}).returning({ id: users.id });
-    const [item] = await db
-      .insert(plaidItems)
+    const [connection] = await db
+      .insert(connections)
       .values({
         userId: user.id,
-        plaidItemId: `test-item-${Date.now()}`,
-        accessTokenEncrypted: 'irrelevant-for-this-test',
+        provider: 'simplefin',
+        credentialEncrypted: crypto.encrypt('test-access-url'),
         status: 'active',
       })
-      .returning({ id: plaidItems.id });
-    itemDbId = item.id;
+      .returning({ id: connections.id });
+    connectionId = connection.id;
 
-    accountPlaidId = `test-account-${Date.now()}`;
+    accountExternalId = `test-account-${Date.now()}`;
     await db.insert(accounts).values({
-      itemId: itemDbId,
-      plaidAccountId: accountPlaidId,
+      connectionId,
+      externalAccountId: accountExternalId,
       name: 'Test Checking',
-      type: 'depository',
-      subtype: 'checking',
     });
-
-    const [category] = await db
-      .insert(categories)
-      .values({
-        slug: `food_and_drink_coffee_test_${Date.now()}`,
-        name: 'Coffee',
-        kind: 'plaid_pfc',
-        plaidPfcPrimary: 'FOOD_AND_DRINK',
-        plaidPfcDetailed: 'FOOD_AND_DRINK_COFFEE',
-      })
-      .returning({ id: categories.id });
-    coffeeCategoryId = category.id;
   });
 
-  function makeService(plaidSyncMock: jest.Mock) {
-    const fakeItems = { decryptAccessToken: async () => 'fake-access-token' } as unknown as ItemsService;
-    const fakePlaid = { transactionsSync: plaidSyncMock } as unknown as PlaidService;
-    return new SyncService(db as any, fakeItems, fakePlaid);
+  function makeService(fetchAccountSetMock: jest.Mock) {
+    const fakeSimplefin = { fetchAccountSet: fetchAccountSetMock } as unknown as SimplefinService;
+    const connectionsService = new ConnectionsService(db as never, crypto, fakeSimplefin);
+    return new SyncService(db as never, connectionsService, fakeSimplefin);
   }
 
-  function baseTransaction(overrides: Record<string, unknown> = {}) {
+  function basePage(overrides: Partial<ProviderSyncPage['accounts'][number]['transactions'][number]> = {}): ProviderSyncPage {
     return {
-      account_id: accountPlaidId,
-      transaction_id: 'txn-1',
-      amount: 10,
-      iso_currency_code: 'USD',
-      unofficial_currency_code: null,
-      category: null,
-      category_id: null,
-      check_number: null,
-      date: '2026-07-10',
-      location: {},
-      name: 'Coffee Shop',
-      merchant_name: 'Coffee Shop',
-      original_description: null,
-      payment_meta: {},
-      pending: false,
-      pending_transaction_id: null,
-      account_owner: null,
-      transaction_type: undefined,
-      logo_url: null,
-      website: null,
-      authorized_date: null,
-      authorized_datetime: null,
-      datetime: null,
-      payment_channel: 'in store',
-      personal_finance_category: { primary: 'FOOD_AND_DRINK', detailed: 'FOOD_AND_DRINK_COFFEE' },
-      merchant_entity_id: null,
-      ...overrides,
+      institutions: [],
+      accounts: [
+        {
+          externalAccountId: accountExternalId,
+          externalOrgId: 'org-1',
+          name: 'Test Checking',
+          isoCurrencyCode: 'USD',
+          transactions: [
+            {
+              externalTransactionId: 'txn-1',
+              date: '2026-07-10',
+              amount: '10.00',
+              name: 'Coffee Shop',
+              pending: false,
+              raw: {},
+              ...overrides,
+            },
+          ],
+        },
+      ],
     };
   }
 
-  it('resolves category_id from the Plaid personal_finance_category on insert', async () => {
-    const syncMock = jest.fn().mockResolvedValueOnce({
-      accounts: [],
-      added: [baseTransaction()],
-      modified: [],
-      removed: [],
-      next_cursor: 'cursor-1',
-      has_more: false,
-    });
-    const service = makeService(syncMock);
+  it('upserts accounts and transactions on first sync, leaving categoryId unset', async () => {
+    const fetchMock = jest.fn().mockResolvedValueOnce(basePage());
+    const service = makeService(fetchMock);
 
-    const result = await service.syncItem(itemDbId, 'manual');
+    const result = await service.syncConnection(connectionId, 'manual');
     expect(result.status).toBe('success');
 
-    const [txn] = await db.select().from(transactions).where(eq(transactions.plaidTransactionId, 'txn-1'));
-    expect(txn.categoryId).toBe(coffeeCategoryId);
+    const [txn] = await db.select().from(transactions).where(eq(transactions.externalTransactionId, 'txn-1'));
     expect(txn.amount).toBe('10.00');
+    expect(txn.categoryId).toBeNull();
 
-    const [item] = await db.select().from(plaidItems).where(eq(plaidItems.id, itemDbId));
-    expect(item.transactionsCursor).toBe('cursor-1');
+    const [connection] = await db.select().from(connections).where(eq(connections.id, connectionId));
+    expect(connection.status).toBe('active');
+    expect(connection.lastSuccessfulSyncAt).not.toBeNull();
   });
 
-  it('updates Plaid-controlled fields on modify but never overwrites user-owned fields', async () => {
-    const firstSync = jest.fn().mockResolvedValueOnce({
-      accounts: [],
-      added: [baseTransaction()],
-      modified: [],
-      removed: [],
-      next_cursor: 'cursor-1',
-      has_more: false,
-    });
-    await makeService(firstSync).syncItem(itemDbId, 'manual');
+  it('updates provider-controlled fields on a later sync but never overwrites user-owned fields', async () => {
+    const firstFetch = jest.fn().mockResolvedValueOnce(basePage());
+    await makeService(firstFetch).syncConnection(connectionId, 'manual');
 
     // Simulate the user categorizing/annotating/hiding this transaction.
+    const [category] = await db
+      .insert(categories)
+      .values({ slug: `custom_test_${Date.now()}`, name: 'Custom', kind: 'custom' })
+      .returning({ id: categories.id });
     await db
       .update(transactions)
-      .set({ userCategoryId: coffeeCategoryId, userNotes: 'my custom note', isHidden: true })
-      .where(eq(transactions.plaidTransactionId, 'txn-1'));
+      .set({ userCategoryId: category.id, userNotes: 'my custom note', isHidden: true })
+      .where(eq(transactions.externalTransactionId, 'txn-1'));
 
-    const secondSync = jest.fn().mockResolvedValueOnce({
-      accounts: [],
-      added: [],
-      modified: [baseTransaction({ amount: 12.5, name: 'Coffee Shop Updated' })],
-      removed: [],
-      next_cursor: 'cursor-2',
-      has_more: false,
-    });
-    const result = await makeService(secondSync).syncItem(itemDbId, 'manual');
+    const secondFetch = jest
+      .fn()
+      .mockResolvedValueOnce(basePage({ amount: '12.50', name: 'Coffee Shop Updated' }));
+    const result = await makeService(secondFetch).syncConnection(connectionId, 'manual');
     expect(result.status).toBe('success');
 
-    const [txn] = await db.select().from(transactions).where(eq(transactions.plaidTransactionId, 'txn-1'));
+    const [txn] = await db.select().from(transactions).where(eq(transactions.externalTransactionId, 'txn-1'));
     expect(txn.amount).toBe('12.50');
     expect(txn.name).toBe('Coffee Shop Updated');
-    // user-owned fields survive the modify untouched
-    expect(txn.userCategoryId).toBe(coffeeCategoryId);
+    // user-owned fields survive the update untouched
+    expect(txn.userCategoryId).toBe(category.id);
     expect(txn.userNotes).toBe('my custom note');
     expect(txn.isHidden).toBe(true);
   });
 
-  it('soft-deletes removed transactions without touching user-owned fields', async () => {
-    const firstSync = jest.fn().mockResolvedValueOnce({
-      accounts: [],
-      added: [baseTransaction()],
-      modified: [],
-      removed: [],
-      next_cursor: 'cursor-1',
-      has_more: false,
-    });
-    await makeService(firstSync).syncItem(itemDbId, 'manual');
-    await db
-      .update(transactions)
-      .set({ userNotes: 'keep me' })
-      .where(eq(transactions.plaidTransactionId, 'txn-1'));
+  it('creates no rows and records a failed sync run when the fetch fails', async () => {
+    const fetchMock = jest.fn().mockRejectedValueOnce(new Error('boom'));
+    const service = makeService(fetchMock);
 
-    const secondSync = jest.fn().mockResolvedValueOnce({
-      accounts: [],
-      added: [],
-      modified: [],
-      removed: [{ transaction_id: 'txn-1', account_id: accountPlaidId }],
-      next_cursor: 'cursor-2',
-      has_more: false,
-    });
-    await makeService(secondSync).syncItem(itemDbId, 'manual');
+    await expect(service.syncConnection(connectionId, 'manual')).rejects.toBeDefined();
 
-    const [txn] = await db.select().from(transactions).where(eq(transactions.plaidTransactionId, 'txn-1'));
-    expect(txn.removedAt).not.toBeNull();
-    expect(txn.userNotes).toBe('keep me');
-  });
-
-  it('does not advance the cursor and rolls back partial writes when a later page fails', async () => {
-    const syncMock = jest
-      .fn()
-      .mockResolvedValueOnce({
-        accounts: [],
-        added: [baseTransaction({ transaction_id: 'txn-page-1' })],
-        modified: [],
-        removed: [],
-        next_cursor: 'cursor-page-1',
-        has_more: true,
-      })
-      .mockRejectedValueOnce({
-        response: { data: { error_code: 'INTERNAL_SERVER_ERROR_NONRETRY', error_message: 'boom' } },
-      });
-    const service = makeService(syncMock);
-
-    await expect(service.syncItem(itemDbId, 'manual')).rejects.toBeDefined();
-
-    const rows = await db
-      .select()
-      .from(transactions)
-      .where(eq(transactions.plaidTransactionId, 'txn-page-1'));
+    const rows = await db.select().from(transactions).where(eq(transactions.externalTransactionId, 'txn-1'));
     expect(rows).toHaveLength(0);
 
-    const [item] = await db.select().from(plaidItems).where(eq(plaidItems.id, itemDbId));
-    expect(item.transactionsCursor).toBeNull();
+    const [connection] = await db.select().from(connections).where(eq(connections.id, connectionId));
+    expect(connection.lastSuccessfulSyncAt).toBeNull();
 
-    const [run] = await db
-      .select()
-      .from(syncRuns)
-      .where(eq(syncRuns.itemId, itemDbId));
+    const [run] = await db.select().from(syncRuns).where(eq(syncRuns.connectionId, connectionId));
     expect(run.status).toBe('failed');
   });
 
-  it('marks the item login_required and does not advance the cursor on ITEM_LOGIN_REQUIRED', async () => {
-    const syncMock = jest.fn().mockRejectedValueOnce({
-      response: { data: { error_code: 'ITEM_LOGIN_REQUIRED', error_message: 're-auth needed' } },
-    });
-    const service = makeService(syncMock);
+  it('marks the connection login_required on an auth error, without advancing lastSuccessfulSyncAt', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockRejectedValueOnce(new SimplefinApiError(403, [{ code: 'con.auth', msg: 're-auth needed' }]));
+    const service = makeService(fetchMock);
 
-    await expect(service.syncItem(itemDbId, 'manual')).rejects.toBeDefined();
+    await expect(service.syncConnection(connectionId, 'manual')).rejects.toBeDefined();
 
-    const [item] = await db.select().from(plaidItems).where(eq(plaidItems.id, itemDbId));
-    expect(item.status).toBe('login_required');
-    expect(item.transactionsCursor).toBeNull();
+    const [connection] = await db.select().from(connections).where(eq(connections.id, connectionId));
+    expect(connection.status).toBe('login_required');
+    expect(connection.lastSuccessfulSyncAt).toBeNull();
   });
 });

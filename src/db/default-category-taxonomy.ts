@@ -1,13 +1,15 @@
-export interface PfcTaxonomyEntry {
+export interface CategoryTaxonomyEntry {
   primary: string;
   detailed: string;
 }
 
 /**
- * Plaid's Personal Finance Category taxonomy (16 primary, ~100 detailed).
- * Source: https://plaid.com/documents/transactions-personal-finance-category-taxonomy.csv
+ * Default category taxonomy (16 primary, ~100 detailed), originally sourced
+ * from Plaid's Personal Finance Category taxonomy. Kept as the app's own
+ * taxonomy regardless of sync provider — it's a reasonable default category
+ * set for user-driven categorization even when a provider supplies none.
  */
-export const PFC_TAXONOMY: PfcTaxonomyEntry[] = [
+export const DEFAULT_CATEGORY_TAXONOMY: CategoryTaxonomyEntry[] = [
   { primary: 'INCOME', detailed: 'INCOME_DIVIDENDS' },
   { primary: 'INCOME', detailed: 'INCOME_INTEREST_EARNED' },
   { primary: 'INCOME', detailed: 'INCOME_RETIREMENT_PENSION' },

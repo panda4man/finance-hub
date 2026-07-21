@@ -13,8 +13,8 @@ export const transactionsEffective = pgView('v_transactions_effective').as((qb) 
     .select({
       id: transactions.id,
       accountId: transactions.accountId,
-      itemId: transactions.itemId,
-      plaidTransactionId: transactions.plaidTransactionId,
+      connectionId: transactions.connectionId,
+      externalTransactionId: transactions.externalTransactionId,
       amount: transactions.amount,
       isoCurrencyCode: transactions.isoCurrencyCode,
       date: transactions.date,

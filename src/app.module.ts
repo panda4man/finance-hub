@@ -3,10 +3,9 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule } from './config/config.module';
 import { HealthModule } from './health/health.module';
 import { DbModule } from './db/db.module';
-import { LinkModule } from './link/link.module';
+import { ConnectionsModule } from './connections/connections.module';
 import { SyncModule } from './sync/sync.module';
 import { TransactionsModule } from './transactions/transactions.module';
-import { SetupModule } from './setup/setup.module';
 
 @Module({
   imports: [
@@ -14,10 +13,9 @@ import { SetupModule } from './setup/setup.module';
     ScheduleModule.forRoot(),
     DbModule,
     HealthModule,
-    LinkModule,
+    ConnectionsModule,
     SyncModule,
     TransactionsModule,
-    SetupModule,
   ],
 })
 export class AppModule {}

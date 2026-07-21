@@ -1,7 +1,7 @@
 {
   "name": "finance-hub",
   "version": "0.1.0",
-  "description": "Backend service: nightly Plaid transaction sync into a categorized Postgres schema",
+  "description": "Backend service: nightly SimpleFin transaction sync into a categorized Postgres schema",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
@@ -15,11 +15,12 @@
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "ts-node src/db/migrate.ts",
-    "seed:categories": "ts-node src/db/seed-categories.ts",
-    "configure": "ts-node src/cli/configure.ts",
-    "cli": "ts-node src/cli/index.ts",
-    "mcp": "ts-node src/mcp/server.ts"
+    "db:migrate": "node dist/db/migrate.js",
+    "seed:categories": "node dist/db/seed-categories.js",
+    "import:legacy-dump": "node dist/db/import-legacy-dump.js",
+    "configure": "node dist/cli/configure.js",
+    "cli": "node dist/cli/index.js",
+    "mcp": "node dist/mcp/server.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -32,7 +33,6 @@
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "pg": "^8.22.0",
-    "plaid": "^43.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "^4.4.3"

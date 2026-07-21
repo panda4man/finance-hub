@@ -3,10 +3,10 @@ import { getFlagBoolean, getFlagString, ParsedArgs } from '../lib/args';
 import { printJson, printSyncOutcomes, printSyncStatus } from '../lib/output';
 
 export async function runSyncRun(args: ParsedArgs): Promise<void> {
-  const itemId = getFlagString(args.flags, 'item-id');
+  const connectionId = getFlagString(args.flags, 'connection-id');
   const json = getFlagBoolean(args.flags, 'json');
 
-  const result = await syncRun(itemId);
+  const result = await syncRun(connectionId);
 
   if (json) {
     printJson(result);

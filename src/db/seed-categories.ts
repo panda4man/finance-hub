@@ -2,7 +2,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { eq, sql } from 'drizzle-orm';
 import { Pool } from 'pg';
 import { categories } from './schema';
-import { PFC_TAXONOMY } from './pfc-taxonomy';
+import { DEFAULT_CATEGORY_TAXONOMY } from './default-category-taxonomy';
 
 function humanize(code: string): string {
   return code
@@ -20,7 +20,7 @@ async function main() {
   const pool = new Pool({ connectionString });
   const db = drizzle(pool, { schema: { categories } });
 
-  const primaries = [...new Set(PFC_TAXONOMY.map((entry) => entry.primary))];
+  const primaries = [...new Set(DEFAULT_CATEGORY_TAXONOMY.map((entry) => entry.primary))];
   const parentIdByPrimary = new Map<string, string>();
 
   for (const primary of primaries) {
@@ -30,9 +30,9 @@ async function main() {
       .values({
         slug,
         name: humanize(primary),
-        kind: 'plaid_pfc',
-        plaidPfcPrimary: primary,
-        plaidPfcDetailed: null,
+        kind: 'source_provided',
+        sourcePrimary: primary,
+        sourceDetailed: null,
       })
       .onConflictDoUpdate({
         target: categories.slug,
@@ -42,7 +42,7 @@ async function main() {
     parentIdByPrimary.set(primary, row.id);
   }
 
-  for (const entry of PFC_TAXONOMY) {
+  for (const entry of DEFAULT_CATEGORY_TAXONOMY) {
     const slug = entry.detailed.toLowerCase();
     const name = humanize(entry.detailed.replace(`${entry.primary}_`, ''));
     await db
@@ -51,16 +51,16 @@ async function main() {
         parentId: parentIdByPrimary.get(entry.primary),
         slug,
         name,
-        kind: 'plaid_pfc',
-        plaidPfcPrimary: entry.primary,
-        plaidPfcDetailed: entry.detailed,
+        kind: 'source_provided',
+        sourcePrimary: entry.primary,
+        sourceDetailed: entry.detailed,
       })
       .onConflictDoUpdate({
         target: categories.slug,
         set: {
           parentId: parentIdByPrimary.get(entry.primary),
           name,
-          plaidPfcPrimary: entry.primary,
+          sourcePrimary: entry.primary,
           updatedAt: sql`now()`,
         },
       });
@@ -69,8 +69,8 @@ async function main() {
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)`.mapWith(Number) })
     .from(categories)
-    .where(eq(categories.kind, 'plaid_pfc'));
-  console.log(`Category taxonomy seeded: ${primaries.length} primary, ${count} plaid_pfc total.`);
+    .where(eq(categories.kind, 'source_provided'));
+  console.log(`Category taxonomy seeded: ${primaries.length} primary, ${count} source_provided total.`);
 
   await pool.end();
 }

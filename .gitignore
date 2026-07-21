@@ -4,3 +4,4 @@ dist/
 *.log
 coverage/
 *.tsbuildinfo
+banking_dashboard.sql

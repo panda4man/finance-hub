@@ -81,7 +81,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
 
 export type SyncOutcome =
   | {
-      itemDbId: string;
+      connectionId: string;
       status: 'success';
       pagesFetched: number;
       added: number;
@@ -89,11 +89,11 @@ export type SyncOutcome =
       removed: number;
       accountsUpserted: number;
     }
-  | { itemDbId: string; status: 'failed'; error: string };
+  | { connectionId: string; status: 'failed'; error: string };
 
 export interface SyncRunRecord {
   id: string;
-  itemId: string | null;
+  connectionId: string | null;
   trigger: 'scheduled' | 'manual' | 'webhook';
   status: 'running' | 'success' | 'partial' | 'failed';
   startedAt: string;
@@ -141,10 +141,10 @@ export interface ListTransactionsQuery {
   order?: SortOrder;
 }
 
-export async function syncRun(itemId?: string): Promise<SyncOutcome | SyncOutcome[]> {
+export async function syncRun(connectionId?: string): Promise<SyncOutcome | SyncOutcome[]> {
   return apiFetch<SyncOutcome | SyncOutcome[]>('/internal/sync/run', {
     method: 'POST',
-    query: { itemId },
+    query: { connectionId },
   });
 }
 

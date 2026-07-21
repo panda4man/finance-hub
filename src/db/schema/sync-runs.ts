@@ -1,6 +1,6 @@
 import { pgTable, uuid, text, integer, timestamp, index } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { plaidItems } from './plaid-items';
+import { connections } from './connections';
 
 export const syncTriggerValues = ['scheduled', 'manual', 'webhook'] as const;
 export type SyncTrigger = (typeof syncTriggerValues)[number];
@@ -12,7 +12,7 @@ export const syncRuns = pgTable(
   'sync_runs',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    itemId: uuid('item_id').references(() => plaidItems.id, { onDelete: 'set null' }),
+    connectionId: uuid('connection_id').references(() => connections.id, { onDelete: 'set null' }),
     trigger: text('trigger').notNull(),
     status: text('status').notNull(),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
@@ -29,7 +29,7 @@ export const syncRuns = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index('idx_sync_runs_item_started').on(t.itemId, sql`${t.startedAt} desc`),
+    index('idx_sync_runs_connection_started').on(t.connectionId, sql`${t.startedAt} desc`),
     index('idx_sync_runs_status').on(t.status),
   ],
 );

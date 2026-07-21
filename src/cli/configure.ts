@@ -8,5 +8,5 @@ if (!token) {
 }
 
 console.log(
-  `\nOpen this URL to configure Plaid credentials:\n\n  http://${host}:${port}/setup?token=${token}\n`,
+  `\nOpen this URL to connect a bank via SimpleFin:\n\n  http://${host}:${port}/connections?token=${token}\n`,
 );

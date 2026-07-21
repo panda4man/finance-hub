@@ -29,6 +29,13 @@
       "when": 1784631732112,
       "tag": "0003_easy_onslaught",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784718000000,
+      "tag": "0004_provider_agnostic_schema",
+      "breakpoints": true
     }
   ]
 }

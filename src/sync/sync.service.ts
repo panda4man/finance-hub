@@ -1,29 +1,19 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { eq, inArray, desc, sql, type AnyColumn } from 'drizzle-orm';
-import type { Transaction, RemovedTransaction, AccountBase } from 'plaid';
 import { DB, Database } from '../db/db.module';
-import {
-  plaidItems,
-  accounts,
-  categories,
-  transactions,
-  transactionCounterparties,
-  syncRuns,
-  type SyncTrigger,
-} from '../db/schema';
-import { ItemsService } from '../items/items.service';
-import { PlaidService } from '../plaid/plaid.service';
-import { getPlaidError, isTransientPlaidError } from '../plaid/plaid-error';
+import { connections, accounts, transactions, syncRuns, type SyncTrigger } from '../db/schema';
+import { ConnectionsService } from '../connections/connections.service';
+import { SimplefinService } from '../simplefin/simplefin.service';
+import { isAuthError, isTransientSimplefinError, SimplefinApiError } from '../simplefin/simplefin-error';
+import type { ProviderSyncPage } from '../simplefin/simplefin.types';
 
 const RETRY_DELAYS_MS = [1000, 4000, 10000];
-const ITEM_STATUS_ERROR_CODES: Record<string, string> = {
-  ITEM_LOGIN_REQUIRED: 'login_required',
-  PENDING_EXPIRATION: 'pending_expiration',
-};
+/** Overlap window re-requested each sync to catch pending -> posted transitions (no cursor in the protocol). */
+const SYNC_OVERLAP_DAYS = 4;
 
 type SyncOutcome =
   | {
-      itemDbId: string;
+      connectionId: string;
       status: 'success';
       pagesFetched: number;
       added: number;
@@ -31,7 +21,7 @@ type SyncOutcome =
       removed: number;
       accountsUpserted: number;
     }
-  | { itemDbId: string; status: 'failed'; error: string };
+  | { connectionId: string; status: 'failed'; error: string };
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -48,112 +38,98 @@ export class SyncService {
 
   constructor(
     @Inject(DB) private readonly db: Database,
-    private readonly items: ItemsService,
-    private readonly plaid: PlaidService,
+    private readonly connectionsService: ConnectionsService,
+    private readonly simplefin: SimplefinService,
   ) {}
 
-  async syncAllActiveItems(trigger: SyncTrigger): Promise<SyncOutcome[]> {
-    const activeItems = await this.db
-      .select({ id: plaidItems.id })
-      .from(plaidItems)
-      .where(inArray(plaidItems.status, ['active', 'pending_expiration']));
+  async syncAllActiveConnections(trigger: SyncTrigger): Promise<SyncOutcome[]> {
+    const activeConnections = await this.db
+      .select({ id: connections.id })
+      .from(connections)
+      .where(inArray(connections.status, ['active', 'pending_expiration']));
 
     const results: SyncOutcome[] = [];
-    for (const item of activeItems) {
-      results.push(await this.syncItemSafely(item.id, trigger));
+    for (const connection of activeConnections) {
+      results.push(await this.syncConnectionSafely(connection.id, trigger));
     }
     return results;
   }
 
-  async syncItemSafely(itemDbId: string, trigger: SyncTrigger): Promise<SyncOutcome> {
+  async syncConnectionSafely(connectionId: string, trigger: SyncTrigger): Promise<SyncOutcome> {
     try {
-      return await this.syncItem(itemDbId, trigger);
+      return await this.syncConnection(connectionId, trigger);
     } catch (err) {
       const message = (err as Error).message;
-      this.logger.error(`Sync failed for item ${itemDbId}: ${message}`);
-      return { itemDbId, status: 'failed', error: message };
+      this.logger.error(`Sync failed for connection ${connectionId}: ${message}`);
+      return { connectionId, status: 'failed', error: message };
     }
   }
 
-  async syncItem(itemDbId: string, trigger: SyncTrigger): Promise<SyncOutcome> {
-    const [item] = await this.db
+  async syncConnection(connectionId: string, trigger: SyncTrigger): Promise<SyncOutcome> {
+    const [connection] = await this.db
       .select()
-      .from(plaidItems)
-      .where(eq(plaidItems.id, itemDbId))
+      .from(connections)
+      .where(eq(connections.id, connectionId))
       .limit(1);
-    if (!item) {
-      throw new Error(`Plaid item ${itemDbId} not found`);
+    if (!connection) {
+      throw new Error(`Connection ${connectionId} not found`);
     }
 
     const [{ id: runId }] = await this.db
       .insert(syncRuns)
-      .values({
-        itemId: itemDbId,
-        trigger,
-        status: 'running',
-        cursorBefore: item.transactionsCursor,
-      })
+      .values({ connectionId, trigger, status: 'running' })
       .returning({ id: syncRuns.id });
 
-    this.logger.log(`Starting ${trigger} sync for item ${itemDbId} (run ${runId})`);
+    this.logger.log(`Starting ${trigger} sync for connection ${connectionId} (run ${runId})`);
 
     await this.db
-      .update(plaidItems)
+      .update(connections)
       .set({ lastAttemptedSyncAt: new Date() })
-      .where(eq(plaidItems.id, itemDbId));
+      .where(eq(connections.id, connectionId));
 
-    const accessToken = await this.items.decryptAccessToken(itemDbId);
-    const categoryMap = await this.loadCategoryMap();
+    const credential = await this.connectionsService.decryptCredential(connectionId);
+    const startDate = connection.lastSuccessfulSyncAt
+      ? new Date(connection.lastSuccessfulSyncAt.getTime() - SYNC_OVERLAP_DAYS * 24 * 60 * 60 * 1000)
+      : undefined;
 
-    const counters = { pagesFetched: 0, added: 0, modified: 0, removed: 0, accountsUpserted: 0 };
-    let cursor = item.transactionsCursor ?? undefined;
+    const counters = { pagesFetched: 1, added: 0, modified: 0, removed: 0, accountsUpserted: 0 };
 
     try {
+      const page = await this.fetchWithRetry(credential, startDate);
+
       await this.db.transaction(async (tx) => {
-        let hasMore = true;
+        counters.accountsUpserted = await this.connectionsService.upsertAccountsAndInstitutions(
+          tx,
+          connectionId,
+          page,
+        );
 
-        while (hasMore) {
-          const page = await this.fetchPageWithRetry(accessToken, cursor);
+        const accountIdMap = await this.loadAccountMap(tx, connectionId);
+        const allTransactions = page.accounts.flatMap((a) =>
+          a.transactions.map((t) => ({ ...t, externalAccountId: a.externalAccountId })),
+        );
 
-          if (page.accounts.length > 0) {
-            counters.accountsUpserted += await this.upsertAccounts(tx, itemDbId, page.accounts);
-          }
+        if (allTransactions.length > 0) {
+          const existingIds = await this.loadExistingTransactionIds(
+            tx,
+            allTransactions.map((t) => t.externalTransactionId),
+          );
+          counters.modified = allTransactions.filter((t) => existingIds.has(t.externalTransactionId)).length;
+          counters.added = allTransactions.length - counters.modified;
 
-          const accountIdMap = await this.loadAccountMap(tx, itemDbId);
-
-          const upserts = [...page.added, ...page.modified];
-          if (upserts.length > 0) {
-            await this.upsertTransactions(tx, itemDbId, upserts, accountIdMap, categoryMap);
-          }
-          if (page.removed.length > 0) {
-            await this.softDeleteTransactions(tx, page.removed);
-          }
-
-          counters.pagesFetched += 1;
-          counters.added += page.added.length;
-          counters.modified += page.modified.length;
-          counters.removed += page.removed.length;
-
-          cursor = page.next_cursor;
-          hasMore = page.has_more;
+          await this.upsertTransactions(tx, connectionId, allTransactions, accountIdMap);
         }
 
         await tx
-          .update(plaidItems)
-          .set({
-            transactionsCursor: cursor,
-            lastSuccessfulSyncAt: new Date(),
-            status: 'active',
-            statusDetail: null,
-          })
-          .where(eq(plaidItems.id, itemDbId));
+          .update(connections)
+          .set({ lastSuccessfulSyncAt: new Date(), status: 'active', statusDetail: null })
+          .where(eq(connections.id, connectionId));
 
         await tx
           .update(syncRuns)
           .set({
             status: 'success',
             finishedAt: new Date(),
-            cursorAfter: cursor,
             pagesFetched: counters.pagesFetched,
             addedCount: counters.added,
             modifiedCount: counters.modified,
@@ -164,195 +140,110 @@ export class SyncService {
       });
 
       this.logger.log(
-        `Sync succeeded for item ${itemDbId} (run ${runId}): ` +
-          `+${counters.added} added, ${counters.modified} modified, ${counters.removed} removed ` +
-          `across ${counters.pagesFetched} page(s)`,
+        `Sync succeeded for connection ${connectionId} (run ${runId}): ` +
+          `+${counters.added} added, ${counters.modified} modified, ${counters.accountsUpserted} account(s)`,
       );
-      return { itemDbId, status: 'success', ...counters };
+      return { connectionId, status: 'success', ...counters };
     } catch (err) {
-      await this.recordFailure(itemDbId, runId, err);
+      await this.recordFailure(connectionId, runId, err);
       throw err;
     }
   }
 
-  private async recordFailure(itemDbId: string, runId: string, err: unknown) {
-    const plaidError = getPlaidError(err);
-    const errorCode = plaidError?.error_code;
-    const errorMessage = plaidError?.error_message ?? (err as Error).message;
+  private async recordFailure(connectionId: string, runId: string, err: unknown) {
+    const errorCode = err instanceof SimplefinApiError ? err.code : undefined;
+    const errorMessage = (err as Error).message;
 
-    this.logger.error(
-      `Sync failed for item ${itemDbId} (run ${runId}): ${errorCode ?? 'UNKNOWN_ERROR'} — ${errorMessage}`,
-    );
+    this.logger.error(`Sync failed for connection ${connectionId} (run ${runId}): ${errorMessage}`);
 
-    const newItemStatus = errorCode ? ITEM_STATUS_ERROR_CODES[errorCode] : undefined;
-    if (newItemStatus) {
-      this.logger.warn(`Item ${itemDbId} status -> ${newItemStatus} (${errorCode})`);
+    if (isAuthError(err)) {
+      this.logger.warn(`Connection ${connectionId} status -> login_required`);
       await this.db
-        .update(plaidItems)
-        .set({ status: newItemStatus, statusDetail: errorMessage })
-        .where(eq(plaidItems.id, itemDbId));
+        .update(connections)
+        .set({ status: 'login_required', statusDetail: errorMessage })
+        .where(eq(connections.id, connectionId));
     }
 
     await this.db
       .update(syncRuns)
-      .set({
-        status: 'failed',
-        finishedAt: new Date(),
-        errorCode,
-        errorMessage,
-      })
+      .set({ status: 'failed', finishedAt: new Date(), errorCode, errorMessage })
       .where(eq(syncRuns.id, runId));
   }
 
-  private async fetchPageWithRetry(accessToken: string, cursor: string | undefined) {
+  private async fetchWithRetry(credential: string, startDate: Date | undefined): Promise<ProviderSyncPage> {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await this.plaid.transactionsSync(accessToken, cursor);
+        return await this.simplefin.fetchAccountSet(credential, { startDate });
       } catch (err) {
-        if (attempt >= RETRY_DELAYS_MS.length || !isTransientPlaidError(err)) {
+        if (attempt >= RETRY_DELAYS_MS.length || !isTransientSimplefinError(err)) {
           throw err;
         }
         this.logger.warn(
-          `Transient Plaid error on transactions/sync (attempt ${attempt + 1}), retrying in ${RETRY_DELAYS_MS[attempt]}ms`,
+          `Transient SimpleFin error on /accounts (attempt ${attempt + 1}), retrying in ${RETRY_DELAYS_MS[attempt]}ms`,
         );
         await sleep(RETRY_DELAYS_MS[attempt]);
       }
     }
   }
 
-  /** Latest sync_runs row per item, newest first — "did last night's sync work" at a glance. */
-  async getLatestRunsPerItem() {
-    const rows = await this.db
-      .select()
-      .from(syncRuns)
-      .orderBy(desc(syncRuns.startedAt));
+  /** Latest sync_runs row per connection, newest first — "did last night's sync work" at a glance. */
+  async getLatestRunsPerConnection() {
+    const rows = await this.db.select().from(syncRuns).orderBy(desc(syncRuns.startedAt));
 
-    const latestByItem = new Map<string, (typeof rows)[number]>();
+    const latestByConnection = new Map<string, (typeof rows)[number]>();
     for (const row of rows) {
-      if (row.itemId && !latestByItem.has(row.itemId)) {
-        latestByItem.set(row.itemId, row);
+      if (row.connectionId && !latestByConnection.has(row.connectionId)) {
+        latestByConnection.set(row.connectionId, row);
       }
     }
-    return [...latestByItem.values()];
+    return [...latestByConnection.values()];
   }
 
-  private async loadCategoryMap(): Promise<Map<string, string>> {
-    const rows = await this.db
-      .select({ id: categories.id, plaidPfcDetailed: categories.plaidPfcDetailed })
-      .from(categories)
-      .where(eq(categories.kind, 'plaid_pfc'));
-    const map = new Map<string, string>();
-    for (const row of rows) {
-      if (row.plaidPfcDetailed) {
-        map.set(row.plaidPfcDetailed, row.id);
-      }
-    }
-    return map;
-  }
-
-  private async loadAccountMap(
-    tx: Database,
-    itemDbId: string,
-  ): Promise<Map<string, string>> {
+  private async loadAccountMap(tx: Database, connectionId: string): Promise<Map<string, string>> {
     const rows = await tx
-      .select({ id: accounts.id, plaidAccountId: accounts.plaidAccountId })
+      .select({ id: accounts.id, externalAccountId: accounts.externalAccountId })
       .from(accounts)
-      .where(eq(accounts.itemId, itemDbId));
-    return new Map(rows.map((row) => [row.plaidAccountId, row.id]));
+      .where(eq(accounts.connectionId, connectionId));
+    return new Map(rows.map((row) => [row.externalAccountId, row.id]));
   }
 
-  private async upsertAccounts(
-    tx: Database,
-    itemDbId: string,
-    plaidAccounts: AccountBase[],
-  ): Promise<number> {
-    await tx
-      .insert(accounts)
-      .values(
-        plaidAccounts.map((account) => ({
-          itemId: itemDbId,
-          plaidAccountId: account.account_id,
-          name: account.name,
-          officialName: account.official_name ?? undefined,
-          mask: account.mask ?? undefined,
-          type: account.type,
-          subtype: account.subtype ?? undefined,
-          availableBalance: account.balances.available?.toString(),
-          currentBalance: account.balances.current?.toString(),
-          creditLimit: account.balances.limit?.toString(),
-          isoCurrencyCode: account.balances.iso_currency_code ?? undefined,
-          balancesUpdatedAt: new Date(),
-        })),
-      )
-      .onConflictDoUpdate({
-        target: accounts.plaidAccountId,
-        set: {
-          name: excludedValue(accounts.name),
-          officialName: excludedValue(accounts.officialName),
-          mask: excludedValue(accounts.mask),
-          type: excludedValue(accounts.type),
-          subtype: excludedValue(accounts.subtype),
-          availableBalance: excludedValue(accounts.availableBalance),
-          currentBalance: excludedValue(accounts.currentBalance),
-          creditLimit: excludedValue(accounts.creditLimit),
-          isoCurrencyCode: excludedValue(accounts.isoCurrencyCode),
-          balancesUpdatedAt: excludedValue(accounts.balancesUpdatedAt),
-          updatedAt: new Date(),
-        },
-      });
-    return plaidAccounts.length;
+  private async loadExistingTransactionIds(tx: Database, externalIds: string[]): Promise<Set<string>> {
+    if (externalIds.length === 0) {
+      return new Set();
+    }
+    const rows = await tx
+      .select({ externalTransactionId: transactions.externalTransactionId })
+      .from(transactions)
+      .where(inArray(transactions.externalTransactionId, externalIds));
+    return new Set(rows.map((r) => r.externalTransactionId));
   }
 
   private async upsertTransactions(
     tx: Database,
-    itemDbId: string,
-    plaidTransactions: Transaction[],
+    connectionId: string,
+    providerTransactions: (ProviderSyncPage['accounts'][number]['transactions'][number] & {
+      externalAccountId: string;
+    })[],
     accountIdMap: Map<string, string>,
-    categoryMap: Map<string, string>,
   ) {
-    const rows = plaidTransactions
+    const rows = providerTransactions
       .map((t) => {
-        const accountId = accountIdMap.get(t.account_id);
+        const accountId = accountIdMap.get(t.externalAccountId);
         if (!accountId) {
-          this.logger.warn(
-            `Skipping transaction ${t.transaction_id}: unknown account ${t.account_id}`,
-          );
+          this.logger.warn(`Skipping transaction ${t.externalTransactionId}: unknown account ${t.externalAccountId}`);
           return null;
         }
-        const pfc = t.personal_finance_category;
         return {
           accountId,
-          itemId: itemDbId,
-          plaidTransactionId: t.transaction_id,
+          connectionId,
+          externalTransactionId: t.externalTransactionId,
           pending: t.pending,
-          pendingPlaidTransactionId: t.pending_transaction_id ?? undefined,
-          amount: t.amount.toFixed(2),
-          isoCurrencyCode: t.iso_currency_code ?? undefined,
-          unofficialCurrencyCode: t.unofficial_currency_code ?? undefined,
+          amount: t.amount,
           date: t.date,
-          authorizedDate: t.authorized_date ?? undefined,
-          datetime: t.datetime ? new Date(t.datetime) : undefined,
-          authorizedDatetime: t.authorized_datetime ? new Date(t.authorized_datetime) : undefined,
+          datetime: t.datetime,
           name: t.name,
-          merchantName: t.merchant_name ?? undefined,
-          merchantEntityId: t.merchant_entity_id ?? undefined,
-          logoUrl: t.logo_url ?? undefined,
-          website: t.website ?? undefined,
-          paymentChannel: t.payment_channel,
-          plaidCategoryLegacy: t.category ?? undefined,
-          plaidCategoryIdLegacy: t.category_id ?? undefined,
-          plaidPfcPrimary: pfc?.primary,
-          plaidPfcDetailed: pfc?.detailed,
-          plaidPfcConfidence: pfc?.confidence_level ?? undefined,
-          categoryId: pfc?.detailed ? categoryMap.get(pfc.detailed) : undefined,
-          locationCity: t.location?.city ?? undefined,
-          locationRegion: t.location?.region ?? undefined,
-          locationCountry: t.location?.country ?? undefined,
-          locationPostalCode: t.location?.postal_code ?? undefined,
-          locationLat: t.location?.lat?.toString(),
-          locationLon: t.location?.lon?.toString(),
           removedAt: null,
-          rawPayload: t,
+          rawPayload: t.raw,
           lastModifiedAt: new Date(),
         };
       })
@@ -362,101 +253,23 @@ export class SyncService {
       return;
     }
 
-    const upserted = await tx
+    await tx
       .insert(transactions)
       .values(rows)
       .onConflictDoUpdate({
-        target: transactions.plaidTransactionId,
+        target: transactions.externalTransactionId,
         set: {
           pending: excludedValue(transactions.pending),
-          pendingPlaidTransactionId: excludedValue(transactions.pendingPlaidTransactionId),
           amount: excludedValue(transactions.amount),
-          isoCurrencyCode: excludedValue(transactions.isoCurrencyCode),
-          unofficialCurrencyCode: excludedValue(transactions.unofficialCurrencyCode),
           date: excludedValue(transactions.date),
-          authorizedDate: excludedValue(transactions.authorizedDate),
           datetime: excludedValue(transactions.datetime),
-          authorizedDatetime: excludedValue(transactions.authorizedDatetime),
           name: excludedValue(transactions.name),
-          merchantName: excludedValue(transactions.merchantName),
-          merchantEntityId: excludedValue(transactions.merchantEntityId),
-          logoUrl: excludedValue(transactions.logoUrl),
-          website: excludedValue(transactions.website),
-          paymentChannel: excludedValue(transactions.paymentChannel),
-          plaidCategoryLegacy: excludedValue(transactions.plaidCategoryLegacy),
-          plaidCategoryIdLegacy: excludedValue(transactions.plaidCategoryIdLegacy),
-          plaidPfcPrimary: excludedValue(transactions.plaidPfcPrimary),
-          plaidPfcDetailed: excludedValue(transactions.plaidPfcDetailed),
-          plaidPfcConfidence: excludedValue(transactions.plaidPfcConfidence),
-          categoryId: excludedValue(transactions.categoryId),
-          locationCity: excludedValue(transactions.locationCity),
-          locationRegion: excludedValue(transactions.locationRegion),
-          locationCountry: excludedValue(transactions.locationCountry),
-          locationPostalCode: excludedValue(transactions.locationPostalCode),
-          locationLat: excludedValue(transactions.locationLat),
-          locationLon: excludedValue(transactions.locationLon),
           removedAt: null,
           rawPayload: excludedValue(transactions.rawPayload),
           lastModifiedAt: excludedValue(transactions.lastModifiedAt),
           updatedAt: new Date(),
-          // deliberately omitted: userCategoryId, userNotes, isHidden (user-owned fields)
+          // deliberately omitted: categoryId, userCategoryId, userNotes, isHidden (user/auto-owned fields)
         },
-      })
-      .returning({ id: transactions.id, plaidTransactionId: transactions.plaidTransactionId });
-
-    const transactionDbIdByPlaidId = new Map(
-      upserted.map((row) => [row.plaidTransactionId, row.id]),
-    );
-    await this.upsertCounterparties(tx, plaidTransactions, transactionDbIdByPlaidId);
-  }
-
-  /** Counterparties can change between syncs, so each touched transaction gets a clean delete-then-insert. */
-  private async upsertCounterparties(
-    tx: Database,
-    plaidTransactions: Transaction[],
-    transactionDbIdByPlaidId: Map<string, string>,
-  ) {
-    const withCounterparties = plaidTransactions.filter(
-      (t) => t.counterparties && t.counterparties.length > 0,
-    );
-    if (withCounterparties.length === 0) {
-      return;
-    }
-
-    const transactionDbIds = withCounterparties
-      .map((t) => transactionDbIdByPlaidId.get(t.transaction_id))
-      .filter((id): id is string => id !== undefined);
-    if (transactionDbIds.length > 0) {
-      await tx
-        .delete(transactionCounterparties)
-        .where(inArray(transactionCounterparties.transactionId, transactionDbIds));
-    }
-
-    const rows = withCounterparties.flatMap((t) => {
-      const transactionId = transactionDbIdByPlaidId.get(t.transaction_id);
-      if (!transactionId) return [];
-      return (t.counterparties ?? []).map((cp) => ({
-        transactionId,
-        name: cp.name,
-        type: cp.type,
-        entityId: cp.entity_id ?? undefined,
-        website: cp.website ?? undefined,
-        logoUrl: cp.logo_url ?? undefined,
-        confidenceLevel: cp.confidence_level ?? undefined,
-      }));
-    });
-
-    if (rows.length > 0) {
-      await tx.insert(transactionCounterparties).values(rows);
-    }
-  }
-
-  private async softDeleteTransactions(tx: Database, removed: RemovedTransaction[]) {
-    const ids = removed.map((r) => r.transaction_id);
-    if (ids.length === 0) return;
-    await tx
-      .update(transactions)
-      .set({ removedAt: new Date() })
-      .where(inArray(transactions.plaidTransactionId, ids));
+      });
   }
 }
