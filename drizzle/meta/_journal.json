@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1784599617861,
+      "tag": "0000_melodic_legion",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784602617871,
+      "tag": "0001_clear_franklin_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784602744088,
+      "tag": "0002_natural_hedge_knight",
+      "breakpoints": true
+    }
+  ]
+}
