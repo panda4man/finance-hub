@@ -1,14 +1,15 @@
 #!/bin/sh
 set -e
 
-echo "Running database migrations..."
-node dist/db/migrate.js
+: "${APP_KEY:?APP_KEY must be set — never regenerate post-deploy, it backs the encrypted cast on stored SimpleFin credentials}"
 
-echo "Seeding category taxonomy..."
-node dist/db/seed-categories.js
+php artisan package:discover --ansi
+php artisan config:cache
 
-echo "Seeding category rules..."
-node dist/db/seed-category-rules.js
+if [ "${RUN_MIGRATIONS:-0}" = "1" ]; then
+  php artisan migrate --force
+  php artisan db:seed --class=CategorySeeder --force
+  php artisan db:seed --class=CategoryRuleSeeder --force
+fi
 
-echo "Starting application..."
-exec node dist/main.js
+exec "$@"

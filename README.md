@@ -1,83 +1,78 @@
-# finance-hub
+<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
 
-Backend service: nightly SimpleFin transaction sync into a categorized, provider-agnostic Postgres schema.
+<p align="center">
+<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
+<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
+<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
+<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
+</p>
 
-## Setup
+## About Laravel
 
-Copy `.env.example` to `.env` and fill in `DATABASE_URL`, `ENCRYPTION_KEY` (`openssl rand -base64 32`), and `INTERNAL_API_TOKEN` (`openssl rand -hex 32`).
+Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
 
-```
-docker compose up -d postgres
-npm run db:migrate
-npm run start:dev
-```
+- [Simple, fast routing engine](https://laravel.com/docs/routing).
+- [Powerful dependency injection container](https://laravel.com/docs/container).
+- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
+- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
+- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
+- [Robust background job processing](https://laravel.com/docs/queues).
+- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
 
-Then connect a bank — see below.
+Laravel is accessible, powerful, and provides tools required for large, robust applications.
 
-## Connecting a bank
+## Learning Laravel
 
-Sync is powered by [SimpleFin](https://www.simplefin.org/), not a bank-specific SDK — no client secret, no OAuth redirect flow. All you need is a **setup token**:
+Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
 
-1. Get a setup token from your SimpleFin bridge (e.g. [bridge.simplefin.org](https://bridge.simplefin.org), where you link your actual bank logins). One bridge account/token can cover several institutions at once.
-2. Run `npm run configure` — it prints a `/connections?token=...` URL.
-3. Open that URL and paste the setup token in. This claims it for a permanent credential and pulls in every account it covers.
+In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
 
-Re-auth works the same way: get a fresh setup token from the bridge and paste it in again. Accounts that already exist (matched by their SimpleFin id) get the stored credential refreshed in place instead of creating duplicates.
+You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
 
-Credentials are stored encrypted (`ENCRYPTION_KEY`), one row per claimed setup token, in the `connections` table — see `src/simplefin/` for the protocol client and `src/connections/` for the claim/refresh flow.
+## Agentic Development
 
-## Internal API
+Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
 
-Two endpoint groups, both guarded by `InternalTokenGuard` — every request needs `Authorization: Bearer <INTERNAL_API_TOKEN>` (or `?token=<INTERNAL_API_TOKEN>`):
+```bash
+composer require laravel/boost --dev
 
-- `POST /internal/sync/run?connectionId=<uuid>` — sync one connection, or all active connections if `connectionId` omitted
-- `GET /internal/sync/status` — latest sync run per connection
-- `GET /internal/transactions?limit&offset&sortBy&order` — paginated/sortable transactions (`sortBy`: `date|amount|name|merchantName`, `order`: `asc|desc`, `limit` max 200)
-
-The CLI and MCP server below are both thin wrappers over this API — same auth, same routes.
-
-## CLI
-
-```
-npm run cli -- sync run [--connection-id <uuid>] [--json]
-npm run cli -- sync status [--json]
-npm run cli -- transactions list [--limit N] [--offset N] [--sort-by date|amount|name|merchantName] [--order asc|desc] [--json]
-npm run cli -- --help
+php artisan boost:install
 ```
 
-Human-readable output by default (table for transactions, one-line summaries for sync); pass `--json` for raw API JSON.
+Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
 
-**Config (env vars):**
+## Deployment
 
-| Var | Default | Purpose |
-|---|---|---|
-| `FINANCE_HUB_API_URL` | — | full base URL override, e.g. `http://prod-host:3000` |
-| `PORT` | `3000` | used to build the base URL if `FINANCE_HUB_API_URL` unset |
-| `PUBLIC_HOST` | `localhost` | used to build the base URL if `FINANCE_HUB_API_URL` unset |
-| `INTERNAL_API_TOKEN` | — | required; sent as the bearer token |
+This app ships as three Docker Compose services (`app`, `queue`, `scheduler`) plus a `postgres` service, defined in `docker-compose.yml` at this directory's root. Copy `.env.example` to `.env` and fill it in before building.
 
-Loaded from `.env` in the repo root automatically (via `src/common/env.ts`).
+- **`APP_KEY`** — generate once with `php artisan key:generate --show` and paste it into `.env`. Never rotate it after the first deploy: it backs the `encrypted` cast on `connections.credential_encrypted` (stored SimpleFin credentials), so rotating it makes existing stored credentials undecryptable.
+- **`LARAVEL_APP_PORT`** — the host-side port the app listens on. Defaults to `3000` if unset; override in `.env` if that's already taken on this host.
+- **`RUN_MIGRATIONS`** — the `app` service sets this to `1` automatically in `docker-compose.yml`, which runs `php artisan migrate --force` plus the `CategorySeeder`/`CategoryRuleSeeder` seeders on container start. Don't set it globally in `.env`, or the `queue`/`scheduler` containers will also try to run migrations on every restart.
+- Build and start: `docker compose -f docker-compose.yml up -d --build` from this directory.
 
-## MCP server
+### MCP server (`mcp/`)
 
-Stdio MCP server wrapping the same API, for AI agents. Start with `npm run mcp`. Registered for Claude Code via the repo-root `.mcp.json`:
+`mcp/server.js` is a standalone Node MCP server that drives the deployed container via `docker exec ... php artisan ...` — it does not run inside the container itself. To install it:
 
-```json
-{
-  "mcpServers": {
-    "finance-hub": { "command": "npm", "args": ["run", "mcp", "--silent"] }
-  }
-}
+```bash
+cd mcp
+npm install
 ```
 
-**Tools:**
+The root `.mcp.json` points Claude Code at `mcp/server.js`. It expects the app container to be named `finance-hub-laravel-app` (the `docker-compose.yml` default); override with the `FINANCE_HUB_CONTAINER` environment variable if you rename it.
 
-| Tool | Input | Maps to |
-|---|---|---|
-| `sync_run` | `{ connectionId?: string (uuid) }` | `POST /internal/sync/run` |
-| `sync_status` | `{}` | `GET /internal/sync/status` |
-| `list_transactions` | `{ limit?, offset?, sortBy?: date\|amount\|name\|merchantName, order?: asc\|desc }` | `GET /internal/transactions` |
+## Contributing
 
-Each tool returns the API's JSON response as text content; failures come back as `isError: true` with the error message (never a raw stack trace on stdout — stdio transport requires stdout to stay pure JSON-RPC).
+Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
 
-Uses the same env vars as the CLI (`FINANCE_HUB_API_URL`/`PORT`/`PUBLIC_HOST`, `INTERNAL_API_TOKEN`), loaded from `.env` in the repo root.
+## Code of Conduct
+
+In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+
+## Security Vulnerabilities
+
+If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+
+## License
+
+The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
