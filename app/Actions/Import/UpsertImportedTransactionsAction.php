@@ -6,7 +6,7 @@ namespace App\Actions\Import;
 
 use App\Models\Transaction;
 use App\Services\CategorizationService;
-use App\Support\Import\ParsedChaseRow;
+use App\Support\Import\ParsedImportRow;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -22,7 +22,7 @@ final class UpsertImportedTransactionsAction
     public function __construct(private readonly CategorizationService $categorization) {}
 
     /**
-     * @param  list<ParsedChaseRow>  $rows
+     * @param  list<ParsedImportRow>  $rows
      * @return array{added: int, duplicate: int}
      */
     public function execute(string $accountId, string $connectionId, array $rows): array
@@ -31,7 +31,7 @@ final class UpsertImportedTransactionsAction
             return ['added' => 0, 'duplicate' => 0];
         }
 
-        $externalIds = array_map(static fn (ParsedChaseRow $row) => $row->externalTransactionId, $rows);
+        $externalIds = array_map(static fn (ParsedImportRow $row) => $row->externalTransactionId, $rows);
 
         $existingIds = array_flip(
             Transaction::query()

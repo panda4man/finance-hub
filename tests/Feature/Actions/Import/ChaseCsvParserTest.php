@@ -1,13 +1,22 @@
 <?php
 
-use App\Support\Import\ChaseCsvParser;
-use Illuminate\Support\Facades\Storage;
+use App\Models\ImportTemplate;
+use App\Support\Import\GenericCsvParser;
+use Database\Seeders\ImportTemplateSeeder;
+
+beforeEach(fn () => $this->seed(ImportTemplateSeeder::class));
 
 function createChaseTestCsvFile(string $content): string
 {
-    $path = sys_get_temp_dir() . '/' . uniqid('chase_test_') . '.csv';
+    $path = sys_get_temp_dir().'/'.uniqid('chase_test_').'.csv';
     file_put_contents($path, $content);
+
     return $path;
+}
+
+function chaseImportTemplate(): ImportTemplate
+{
+    return ImportTemplate::where('name', 'Chase checking')->firstOrFail();
 }
 
 it('parses a valid Chase CSV export correctly', function () {
@@ -19,8 +28,8 @@ CSV;
     $path = createChaseTestCsvFile($csv);
 
     try {
-        $parser = new ChaseCsvParser();
-        $result = $parser->parse('acc-1', $path);
+        $parser = new GenericCsvParser;
+        $result = $parser->parse(chaseImportTemplate(), 'acc-1', $path);
 
         expect($result['rows'])->toHaveCount(2);
         expect($result['failures'])->toBeEmpty();
@@ -48,8 +57,8 @@ CSV;
     $path = createChaseTestCsvFile($csv);
 
     try {
-        $parser = new ChaseCsvParser();
-        $result = $parser->parse('acc-1', $path);
+        $parser = new GenericCsvParser;
+        $result = $parser->parse(chaseImportTemplate(), 'acc-1', $path);
 
         $row = $result['rows'][0];
         // CSV had -10.50 (debit), should flip to +10.50 (outflow)
@@ -67,8 +76,8 @@ CSV;
     $path = createChaseTestCsvFile($csv);
 
     try {
-        $parser = new ChaseCsvParser();
-        $result = $parser->parse('acc-1', $path);
+        $parser = new GenericCsvParser;
+        $result = $parser->parse(chaseImportTemplate(), 'acc-1', $path);
 
         $row = $result['rows'][0];
         // CSV had 3000.00 (credit), should flip to -3000.00 (inflow)
@@ -88,8 +97,8 @@ CSV;
     $path = createChaseTestCsvFile($csv);
 
     try {
-        $parser = new ChaseCsvParser();
-        $result = $parser->parse('acc-1', $path);
+        $parser = new GenericCsvParser;
+        $result = $parser->parse(chaseImportTemplate(), 'acc-1', $path);
 
         expect($result['rows'])->toHaveCount(2); // valid rows only
         expect($result['failures'])->toHaveCount(1);
@@ -115,8 +124,8 @@ CSV;
     $path = createChaseTestCsvFile($csv);
 
     try {
-        $parser = new ChaseCsvParser();
-        $result = $parser->parse('acc-1', $path);
+        $parser = new GenericCsvParser;
+        $result = $parser->parse(chaseImportTemplate(), 'acc-1', $path);
 
         expect($result['rows'])->toHaveCount(2);
         expect($result['failures'])->toHaveCount(1);
@@ -134,10 +143,10 @@ CSV;
     $path = createChaseTestCsvFile($csv);
 
     try {
-        $parser = new ChaseCsvParser();
-        $this->expectException(\RuntimeException::class);
+        $parser = new GenericCsvParser;
+        $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Unrecognized CSV header');
-        $parser->parse('acc-1', $path);
+        $parser->parse(chaseImportTemplate(), 'acc-1', $path);
     } finally {
         @unlink($path);
     }
@@ -152,8 +161,8 @@ CSV;
     $path = createChaseTestCsvFile($csv);
 
     try {
-        $parser = new ChaseCsvParser();
-        $result = $parser->parse('acc-1', $path);
+        $parser = new GenericCsvParser;
+        $result = $parser->parse(chaseImportTemplate(), 'acc-1', $path);
 
         expect($result['rows'])->toHaveCount(2);
 
@@ -161,7 +170,7 @@ CSV;
         expect($result['rows'][0]->externalTransactionId)->not->toBe($result['rows'][1]->externalTransactionId);
 
         // Re-parse the same file, should get the same ids
-        $result2 = $parser->parse('acc-1', $path);
+        $result2 = $parser->parse(chaseImportTemplate(), 'acc-1', $path);
         expect($result2['rows'][0]->externalTransactionId)->toBe($result['rows'][0]->externalTransactionId);
         expect($result2['rows'][1]->externalTransactionId)->toBe($result['rows'][1]->externalTransactionId);
     } finally {
@@ -178,8 +187,8 @@ CSV;
     $path = createChaseTestCsvFile($csv);
 
     try {
-        $parser = new ChaseCsvParser();
-        $result = $parser->parse('acc-1', $path);
+        $parser = new GenericCsvParser;
+        $result = $parser->parse(chaseImportTemplate(), 'acc-1', $path);
 
         expect($result['rows'][0]->balance)->toBeNull();
         expect($result['rows'][1]->balance)->toBe(1000.00);
@@ -196,8 +205,8 @@ CSV;
     $path = createChaseTestCsvFile($csv);
 
     try {
-        $parser = new ChaseCsvParser();
-        $result = $parser->parse('acc-1', $path);
+        $parser = new GenericCsvParser;
+        $result = $parser->parse(chaseImportTemplate(), 'acc-1', $path);
 
         expect($result['rows'][0]->description)->toBe('COFFEE SHOP');
         expect($result['rows'][0]->detailsType)->toBe('DEBIT');
@@ -214,8 +223,8 @@ CSV;
     $path = createChaseTestCsvFile($csv);
 
     try {
-        $parser = new ChaseCsvParser();
-        $result = $parser->parse('acc-1', $path);
+        $parser = new GenericCsvParser;
+        $result = $parser->parse(chaseImportTemplate(), 'acc-1', $path);
 
         expect($result['rows'])->toBeEmpty();
         expect($result['failures'])->toHaveCount(1);

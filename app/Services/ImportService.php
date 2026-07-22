@@ -10,8 +10,9 @@ use App\Enums\ImportStatus;
 use App\Models\Account;
 use App\Models\Connection;
 use App\Models\ImportRun;
-use App\Support\Import\ChaseCsvParser;
-use App\Support\Import\ParsedChaseRow;
+use App\Models\ImportTemplate;
+use App\Support\Import\GenericCsvParser;
+use App\Support\Import\ParsedImportRow;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -19,7 +20,7 @@ use Illuminate\Support\Str;
 final class ImportService
 {
     public function __construct(
-        private readonly ChaseCsvParser $parser,
+        private readonly GenericCsvParser $parser,
         private readonly UpsertImportedTransactionsAction $upsertTransactions,
     ) {}
 
@@ -36,12 +37,13 @@ final class ImportService
         );
     }
 
-    public function createManualAccount(string $userId, string $name, ?string $mask, ?string $type): Account
+    public function createManualAccount(string $userId, string $name, ?string $mask, ?string $type, ?string $institutionId = null): Account
     {
         $connection = $this->ensureManualConnection($userId);
 
         return Account::create([
             'connection_id' => $connection->id,
+            'institution_id' => $institutionId,
             // accounts.external_account_id is globally unique NOT NULL; CSV
             // accounts have no provider-issued id, so synthesize one.
             'external_account_id' => 'manual:'.Str::uuid(),
@@ -51,9 +53,10 @@ final class ImportService
         ]);
     }
 
-    public function importFile(string $accountId, string $filePath, string $fileName): ImportRun
+    public function importFile(string $accountId, string $templateId, string $filePath, string $fileName): ImportRun
     {
         $account = Account::findOrFail($accountId);
+        $template = ImportTemplate::findOrFail($templateId);
 
         $run = ImportRun::create([
             'connection_id' => $account->connection_id,
@@ -64,7 +67,7 @@ final class ImportService
         ]);
 
         try {
-            ['rows' => $rows, 'failures' => $failures] = $this->parser->parse($accountId, $filePath);
+            ['rows' => $rows, 'failures' => $failures] = $this->parser->parse($template, $accountId, $filePath);
 
             $counts = ['added' => 0, 'duplicate' => 0];
 
@@ -108,7 +111,7 @@ final class ImportService
      * in some exports). Guarded so importing an older or overlapping export
      * never regresses a balance already advanced by a newer import.
      *
-     * @param  list<ParsedChaseRow>  $rows
+     * @param  list<ParsedImportRow>  $rows
      */
     private function updateAccountBalance(Account $account, array $rows): void
     {
