@@ -7,6 +7,8 @@ use App\Enums\SyncTrigger;
 use App\Filament\Resources\ConnectionResource\Pages\CreateConnection;
 use App\Filament\Resources\ConnectionResource\Pages\EditConnection;
 use App\Filament\Resources\ConnectionResource\Pages\ListConnections;
+use App\Filament\Resources\ConnectionResource\Pages\ViewConnection;
+use App\Filament\Resources\ConnectionResource\RelationManagers\AccountsRelationManager;
 use App\Filament\Resources\ConnectionResource\RelationManagers\SyncRunsRelationManager;
 use App\Jobs\BackfillConnectionJob;
 use App\Jobs\SyncConnectionJob;
@@ -15,6 +17,7 @@ use App\Support\CurrentOwner;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -75,6 +78,7 @@ class ConnectionResource extends Resource
             ->recordActions([
                 self::syncAction(),
                 self::backfillAction(),
+                ViewAction::make(),
                 EditAction::make(),
             ])
             ->defaultSort('created_at', 'desc');
@@ -124,6 +128,7 @@ class ConnectionResource extends Resource
     public static function getRelations(): array
     {
         return [
+            AccountsRelationManager::class,
             SyncRunsRelationManager::class,
         ];
     }
@@ -133,6 +138,7 @@ class ConnectionResource extends Resource
         return [
             'index' => ListConnections::route('/'),
             'create' => CreateConnection::route('/create'),
+            'view' => ViewConnection::route('/{record}'),
             'edit' => EditConnection::route('/{record}/edit'),
         ];
     }
