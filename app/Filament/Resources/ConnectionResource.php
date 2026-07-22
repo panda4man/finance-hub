@@ -9,6 +9,7 @@ use App\Filament\Resources\ConnectionResource\Pages\EditConnection;
 use App\Filament\Resources\ConnectionResource\Pages\ListConnections;
 use App\Filament\Resources\ConnectionResource\Pages\ViewConnection;
 use App\Filament\Resources\ConnectionResource\RelationManagers\AccountsRelationManager;
+use App\Filament\Resources\ConnectionResource\RelationManagers\ImportRunsRelationManager;
 use App\Filament\Resources\ConnectionResource\RelationManagers\SyncRunsRelationManager;
 use App\Jobs\BackfillConnectionJob;
 use App\Jobs\SyncConnectionJob;
@@ -130,6 +131,7 @@ class ConnectionResource extends Resource
         return [
             AccountsRelationManager::class,
             SyncRunsRelationManager::class,
+            ImportRunsRelationManager::class,
         ];
     }
 
