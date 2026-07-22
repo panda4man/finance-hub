@@ -127,18 +127,24 @@ export class SimplefinService {
         availableBalance: account['available-balance'],
         currentBalance: account.balance,
         balancesUpdatedAt: new Date(account['balance-date'] * 1000),
-        transactions: (account.transactions ?? []).map((t) => ({
-          externalTransactionId: t.id,
-          date: new Date(t.posted * 1000).toISOString().slice(0, 10),
-          datetime: t.transacted_at ? new Date(t.transacted_at * 1000) : undefined,
-          // SimpleFin: positive = deposit/in. This app's canonical convention
-          // (established by the prior Plaid integration) is the opposite:
-          // positive = money leaving the account. Negate to normalize.
-          amount: (-Number(t.amount)).toFixed(2),
-          name: t.description,
-          pending: t.pending ?? false,
-          raw: t,
-        })),
+        transactions: (account.transactions ?? []).map((t) => {
+          // SimpleFin sends posted: 0 for still-pending transactions (no
+          // posted date exists yet) — fall back to transacted_at so these
+          // don't land on the Unix epoch instead of their real date.
+          const postedSeconds = t.posted || t.transacted_at || Math.floor(Date.now() / 1000);
+          return {
+            externalTransactionId: t.id,
+            date: new Date(postedSeconds * 1000).toISOString().slice(0, 10),
+            datetime: t.transacted_at ? new Date(t.transacted_at * 1000) : undefined,
+            // SimpleFin: positive = deposit/in. This app's canonical convention
+            // (established by the prior Plaid integration) is the opposite:
+            // positive = money leaving the account. Negate to normalize.
+            amount: (-Number(t.amount)).toFixed(2),
+            name: t.description,
+            pending: t.pending ?? false,
+            raw: t,
+          };
+        }),
       };
     });
 
