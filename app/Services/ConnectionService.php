@@ -10,6 +10,7 @@ use App\Models\Connection;
 use App\Models\Institution;
 use App\Models\User;
 use App\Services\Simplefin\SimplefinClient;
+use App\Support\CurrentOwner;
 use App\Support\Simplefin\ProviderAccount;
 use App\Support\Simplefin\ProviderSyncPage;
 use Illuminate\Support\Collection;
@@ -55,7 +56,7 @@ final class ConnectionService
                 $connection->save();
             } else {
                 $connection = Connection::create([
-                    'user_id' => $this->getDefaultUserId(),
+                    'user_id' => CurrentOwner::id() ?? $this->getDefaultUserId(),
                     'provider' => 'simplefin',
                     'credential_encrypted' => $accessUrl,
                     'status' => ConnectionStatus::Active,
