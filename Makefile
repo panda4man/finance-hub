@@ -1,6 +1,11 @@
-.PHONY: build up down restart logs logs-app logs-db ps shell psql migrate seed configure sync-run sync-status transactions clean
+.PHONY: help build up down restart logs logs-app logs-db ps shell psql migrate seed configure sync-run sync-status recategorize transactions clean
 
 COMPOSE := docker compose
+
+.DEFAULT_GOAL := help
+
+help: ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
 build: ## Build the app image
 	$(COMPOSE) build
@@ -46,6 +51,9 @@ sync-run: ## Trigger a SimpleFin transactions sync now
 
 sync-status: ## Check status of the last sync run
 	$(COMPOSE) exec app npm run cli -- sync status
+
+recategorize: ## Re-run the category-rule engine against every transaction
+	$(COMPOSE) exec app npm run cli -- categorize recategorize
 
 transactions: ## List synced transactions
 	$(COMPOSE) exec app npm run cli -- transactions list
