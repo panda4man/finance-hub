@@ -69,4 +69,12 @@ class Connection extends Model
     {
         return $this->hasMany(SyncRun::class);
     }
+
+    /**
+     * @return HasMany<ImportRun, $this>
+     */
+    public function importRuns(): HasMany
+    {
+        return $this->hasMany(ImportRun::class);
+    }
 }

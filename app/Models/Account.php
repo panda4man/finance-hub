@@ -63,4 +63,12 @@ class Account extends Model
     {
         return $this->hasMany(Transaction::class);
     }
+
+    /**
+     * @return HasMany<ImportRun, $this>
+     */
+    public function importRuns(): HasMany
+    {
+        return $this->hasMany(ImportRun::class);
+    }
 }
