@@ -1,6 +1,6 @@
 import { loadEnv } from '../common/env';
 import { ApiError } from '../common/http-client';
-import { runSyncRun, runSyncStatus } from './commands/sync';
+import { runSyncBackfill, runSyncRun, runSyncStatus } from './commands/sync';
 import { runTransactionsList } from './commands/transactions';
 import { runCategorizeRecategorize } from './commands/categorize';
 import { parseArgs } from './lib/args';
@@ -12,6 +12,7 @@ const HELP = `finance-hub CLI
 Usage:
   npm run cli -- sync run [--item-id <uuid>] [--json]
   npm run cli -- sync status [--json]
+  npm run cli -- sync backfill --connection-id <uuid> [--json]
   npm run cli -- transactions list [--limit N] [--offset N] [--sort-by date|amount|name|merchantName] [--order asc|desc] [--json]
   npm run cli -- categorize recategorize [--json]
   npm run cli -- --help
@@ -33,6 +34,9 @@ async function main(): Promise<void> {
   }
   if (group === 'sync' && action === 'status') {
     return runSyncStatus(args);
+  }
+  if (group === 'sync' && action === 'backfill') {
+    return runSyncBackfill(args);
   }
   if (group === 'transactions' && action === 'list') {
     return runTransactionsList(args);

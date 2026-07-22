@@ -2,7 +2,7 @@ import { pgTable, uuid, text, integer, timestamp, index } from 'drizzle-orm/pg-c
 import { sql } from 'drizzle-orm';
 import { connections } from './connections';
 
-export const syncTriggerValues = ['scheduled', 'manual', 'webhook'] as const;
+export const syncTriggerValues = ['scheduled', 'manual', 'webhook', 'backfill'] as const;
 export type SyncTrigger = (typeof syncTriggerValues)[number];
 
 export const syncRunStatusValues = ['running', 'success', 'partial', 'failed'] as const;

@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { loadEnv } from '../common/env';
-import { ApiError, listTransactions, recategorizeAll, syncRun, syncStatus } from '../common/http-client';
+import { ApiError, listTransactions, recategorizeAll, syncBackfill, syncRun, syncStatus } from '../common/http-client';
 
 loadEnv();
 
@@ -48,6 +48,28 @@ server.registerTool(
   async () => {
     try {
       const result = await syncStatus();
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { isError: true, content: [{ type: 'text' as const, text: errorMessage(err) }] };
+    }
+  },
+);
+
+server.registerTool(
+  'sync_backfill',
+  {
+    title: 'Backfill full transaction history',
+    description:
+      'Walk a connection backward in time, window by window, pulling every transaction the provider ' +
+      'still has until it runs dry. Slower and heavier than sync_run — use for a new connection or ' +
+      'to fill in older history, not for routine syncing.',
+    inputSchema: {
+      connectionId: z.string().uuid(),
+    },
+  },
+  async ({ connectionId }) => {
+    try {
+      const result = await syncBackfill(connectionId);
       return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
     } catch (err) {
       return { isError: true, content: [{ type: 'text' as const, text: errorMessage(err) }] };

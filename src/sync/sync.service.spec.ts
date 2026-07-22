@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { eq } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { Pool } from 'pg';
 import * as schema from '../db/schema';
 import { users, connections, accounts, categories, categoryRules, transactions, syncRuns } from '../db/schema';
@@ -213,5 +213,127 @@ describe('SyncService (integration)', () => {
     const [connection] = await db.select().from(connections).where(eq(connections.id, connectionId));
     expect(connection.status).toBe('login_required');
     expect(connection.lastSuccessfulSyncAt).toBeNull();
+  });
+
+  describe('backfillConnection', () => {
+    function pageWithTransactions(
+      txns: { externalTransactionId: string; date: string; amount?: string; name?: string }[],
+    ): ProviderSyncPage {
+      return {
+        institutions: [],
+        accounts: [
+          {
+            externalAccountId: accountExternalId,
+            externalOrgId: 'org-1',
+            name: 'Test Checking',
+            isoCurrencyCode: 'USD',
+            transactions: txns.map((t) => ({
+              externalTransactionId: t.externalTransactionId,
+              date: t.date,
+              amount: t.amount ?? '10.00',
+              name: t.name ?? 'Coffee Shop',
+              pending: false,
+              raw: {},
+            })),
+          },
+        ],
+      };
+    }
+
+    function emptyPage(): ProviderSyncPage {
+      return pageWithTransactions([]);
+    }
+
+    it('walks backward and stops after 3 consecutive empty windows', async () => {
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValueOnce(pageWithTransactions([{ externalTransactionId: 'bf-1', date: '2026-07-01' }]))
+        .mockResolvedValue(emptyPage());
+      const service = await makeService(fetchMock);
+
+      const result = await service.backfillConnection(connectionId);
+      expect(result.status).toBe('success');
+      if (result.status !== 'success') {
+        throw new Error('unreachable');
+      }
+      expect(result.pagesFetched).toBe(4);
+      expect(result.added).toBe(1);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+
+      const [txn] = await db.select().from(transactions).where(eq(transactions.externalTransactionId, 'bf-1'));
+      expect(txn).toBeDefined();
+    });
+
+    it('does not stop on a single dormant window if an older window still has transactions', async () => {
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValueOnce(pageWithTransactions([{ externalTransactionId: 'bf-recent', date: '2026-07-01' }]))
+        .mockResolvedValueOnce(emptyPage())
+        .mockResolvedValueOnce(pageWithTransactions([{ externalTransactionId: 'bf-older', date: '2026-01-01' }]))
+        .mockResolvedValue(emptyPage());
+      const service = await makeService(fetchMock);
+
+      const result = await service.backfillConnection(connectionId);
+      expect(result.status).toBe('success');
+      if (result.status !== 'success') {
+        throw new Error('unreachable');
+      }
+      expect(result.added).toBe(2);
+
+      const rows = await db
+        .select()
+        .from(transactions)
+        .where(inArray(transactions.externalTransactionId, ['bf-recent', 'bf-older']));
+      expect(rows).toHaveLength(2);
+    });
+
+    it('sets lastSuccessfulSyncAt on a natural stop when it was previously null', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(emptyPage());
+      const service = await makeService(fetchMock);
+
+      const result = await service.backfillConnection(connectionId);
+      expect(result.status).toBe('success');
+
+      const [connection] = await db.select().from(connections).where(eq(connections.id, connectionId));
+      expect(connection.lastSuccessfulSyncAt).not.toBeNull();
+    });
+
+    it('leaves lastSuccessfulSyncAt untouched when it was already set', async () => {
+      const firstFetch = jest.fn().mockResolvedValueOnce(basePage());
+      await (await makeService(firstFetch)).syncConnection(connectionId, 'manual');
+      const [afterSync] = await db.select().from(connections).where(eq(connections.id, connectionId));
+      const syncedAt = afterSync.lastSuccessfulSyncAt!.getTime();
+
+      const backfillFetch = jest.fn().mockResolvedValue(emptyPage());
+      const result = await (await makeService(backfillFetch)).backfillConnection(connectionId);
+      expect(result.status).toBe('success');
+
+      const [afterBackfill] = await db.select().from(connections).where(eq(connections.id, connectionId));
+      expect(afterBackfill.lastSuccessfulSyncAt!.getTime()).toBe(syncedAt);
+    });
+
+    it('preserves transactions from windows already committed when a later window fails', async () => {
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValueOnce(pageWithTransactions([{ externalTransactionId: 'bf-committed', date: '2026-07-01' }]))
+        .mockRejectedValueOnce(new Error('boom'));
+      const service = await makeService(fetchMock);
+
+      await expect(service.backfillConnection(connectionId)).rejects.toBeDefined();
+
+      const [txn] = await db
+        .select()
+        .from(transactions)
+        .where(eq(transactions.externalTransactionId, 'bf-committed'));
+      expect(txn).toBeDefined();
+
+      const [run] = await db
+        .select()
+        .from(syncRuns)
+        .where(eq(syncRuns.connectionId, connectionId))
+        .orderBy(desc(syncRuns.startedAt));
+      expect(run.status).toBe('failed');
+      expect(run.trigger).toBe('backfill');
+    });
   });
 });

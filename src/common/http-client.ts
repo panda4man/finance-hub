@@ -94,7 +94,7 @@ export type SyncOutcome =
 export interface SyncRunRecord {
   id: string;
   connectionId: string | null;
-  trigger: 'scheduled' | 'manual' | 'webhook';
+  trigger: 'scheduled' | 'manual' | 'webhook' | 'backfill';
   status: 'running' | 'success' | 'partial' | 'failed';
   startedAt: string;
   finishedAt: string | null;
@@ -150,6 +150,13 @@ export async function syncRun(connectionId?: string): Promise<SyncOutcome | Sync
 
 export async function syncStatus(): Promise<SyncRunRecord[]> {
   return apiFetch<SyncRunRecord[]>('/internal/sync/status');
+}
+
+export async function syncBackfill(connectionId: string): Promise<SyncOutcome> {
+  return apiFetch<SyncOutcome>('/internal/sync/backfill', {
+    method: 'POST',
+    query: { connectionId },
+  });
 }
 
 export interface RecategorizeResult {

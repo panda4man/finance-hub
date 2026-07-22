@@ -1,4 +1,4 @@
-import { syncRun, syncStatus } from '../../common/http-client';
+import { syncBackfill, syncRun, syncStatus } from '../../common/http-client';
 import { getFlagBoolean, getFlagString, ParsedArgs } from '../lib/args';
 import { printJson, printSyncOutcomes, printSyncStatus } from '../lib/output';
 
@@ -25,4 +25,21 @@ export async function runSyncStatus(args: ParsedArgs): Promise<void> {
     return;
   }
   printSyncStatus(result);
+}
+
+export async function runSyncBackfill(args: ParsedArgs): Promise<void> {
+  const connectionId = getFlagString(args.flags, 'connection-id');
+  const json = getFlagBoolean(args.flags, 'json');
+
+  if (!connectionId) {
+    throw new Error('sync backfill requires --connection-id <uuid>');
+  }
+
+  const result = await syncBackfill(connectionId);
+
+  if (json) {
+    printJson(result);
+    return;
+  }
+  printSyncOutcomes(result);
 }

@@ -12,6 +12,18 @@ const RETRY_DELAYS_MS = [1000, 4000, 10000];
 /** Overlap window re-requested each sync to catch pending -> posted transitions (no cursor in the protocol). */
 const SYNC_OVERLAP_DAYS = 4;
 
+/** Size of each backward-walking window during a full-history backfill. */
+const BACKFILL_WINDOW_DAYS = 90;
+/**
+ * Consecutive empty windows required before concluding we've walked past the
+ * start of the provider's history. A single empty window isn't enough — a
+ * dormant account can have a multi-month gap with real history still further
+ * back, so we keep walking a few more windows before calling it.
+ */
+const BACKFILL_EMPTY_WINDOWS_TO_STOP = 3;
+/** Safety cap (~50 years) in case a provider never actually returns an empty window. */
+const BACKFILL_MAX_WINDOWS = 200;
+
 type SyncOutcome =
   | {
       connectionId: string;
@@ -100,27 +112,10 @@ export class SyncService {
       const page = await this.fetchWithRetry(credential, startDate);
 
       await this.db.transaction(async (tx) => {
-        counters.accountsUpserted = await this.connectionsService.upsertAccountsAndInstitutions(
-          tx,
-          connectionId,
-          page,
-        );
-
-        const accountIdMap = await this.loadAccountMap(tx, connectionId);
-        const allTransactions = page.accounts.flatMap((a) =>
-          a.transactions.map((t) => ({ ...t, externalAccountId: a.externalAccountId })),
-        );
-
-        if (allTransactions.length > 0) {
-          const existingIds = await this.loadExistingTransactionIds(
-            tx,
-            allTransactions.map((t) => t.externalTransactionId),
-          );
-          counters.modified = allTransactions.filter((t) => existingIds.has(t.externalTransactionId)).length;
-          counters.added = allTransactions.length - counters.modified;
-
-          await this.upsertTransactions(tx, connectionId, allTransactions, accountIdMap);
-        }
+        const applied = await this.applyPage(tx, connectionId, page);
+        counters.accountsUpserted = applied.accountsUpserted;
+        counters.added = applied.added;
+        counters.modified = applied.modified;
 
         await tx
           .update(connections)
@@ -152,6 +147,151 @@ export class SyncService {
     }
   }
 
+  /**
+   * Full-history backfill: walks backward from now in fixed-size windows,
+   * upserting each non-empty window as it goes, until several consecutive
+   * windows come back with no transactions at all — the signal that we've
+   * walked past the start of whatever history the provider actually has.
+   *
+   * Unlike `syncConnection`, this doesn't wrap the whole walk in one DB
+   * transaction: each window commits independently so that if a later
+   * (older) window fails, the history already pulled in earlier windows
+   * stays committed instead of being rolled back.
+   */
+  async backfillConnectionSafely(connectionId: string): Promise<SyncOutcome> {
+    try {
+      return await this.backfillConnection(connectionId);
+    } catch (err) {
+      const message = (err as Error).message;
+      this.logger.error(`Backfill failed for connection ${connectionId}: ${message}`);
+      return { connectionId, status: 'failed', error: message };
+    }
+  }
+
+  async backfillConnection(connectionId: string): Promise<SyncOutcome> {
+    const [connection] = await this.db
+      .select()
+      .from(connections)
+      .where(eq(connections.id, connectionId))
+      .limit(1);
+    if (!connection) {
+      throw new Error(`Connection ${connectionId} not found`);
+    }
+
+    const [{ id: runId }] = await this.db
+      .insert(syncRuns)
+      .values({ connectionId, trigger: 'backfill', status: 'running' })
+      .returning({ id: syncRuns.id });
+
+    this.logger.log(`Starting full-history backfill for connection ${connectionId} (run ${runId})`);
+
+    await this.db
+      .update(connections)
+      .set({ lastAttemptedSyncAt: new Date() })
+      .where(eq(connections.id, connectionId));
+
+    const credential = await this.connectionsService.decryptCredential(connectionId);
+    const runStartedAt = new Date();
+    const counters = { pagesFetched: 0, added: 0, modified: 0, removed: 0, accountsUpserted: 0 };
+    let consecutiveEmptyWindows = 0;
+    let windowEnd = runStartedAt;
+    let reachedNaturalStop = false;
+
+    try {
+      for (let window = 0; window < BACKFILL_MAX_WINDOWS; window += 1) {
+        const windowStart = new Date(windowEnd.getTime() - BACKFILL_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+        const page = await this.fetchWithRetry(credential, windowStart, windowEnd);
+        counters.pagesFetched += 1;
+
+        const transactionCount = page.accounts.reduce((sum, a) => sum + a.transactions.length, 0);
+        if (transactionCount === 0) {
+          consecutiveEmptyWindows += 1;
+          if (consecutiveEmptyWindows >= BACKFILL_EMPTY_WINDOWS_TO_STOP) {
+            reachedNaturalStop = true;
+            windowEnd = windowStart;
+            break;
+          }
+        } else {
+          consecutiveEmptyWindows = 0;
+          await this.db.transaction(async (tx) => {
+            const applied = await this.applyPage(tx, connectionId, page);
+            counters.accountsUpserted += applied.accountsUpserted;
+            counters.added += applied.added;
+            counters.modified += applied.modified;
+          });
+        }
+
+        windowEnd = windowStart;
+      }
+
+      if (!reachedNaturalStop) {
+        this.logger.warn(
+          `Backfill for connection ${connectionId} (run ${runId}) hit the ${BACKFILL_MAX_WINDOWS}-window ` +
+            `safety cap (back to ${windowEnd.toISOString()}) without a natural stop`,
+        );
+      }
+
+      if (reachedNaturalStop && !connection.lastSuccessfulSyncAt) {
+        await this.db
+          .update(connections)
+          .set({ lastSuccessfulSyncAt: runStartedAt, status: 'active', statusDetail: null })
+          .where(eq(connections.id, connectionId));
+      }
+
+      await this.db
+        .update(syncRuns)
+        .set({
+          status: 'success',
+          finishedAt: new Date(),
+          pagesFetched: counters.pagesFetched,
+          addedCount: counters.added,
+          modifiedCount: counters.modified,
+          removedCount: counters.removed,
+          accountsUpserted: counters.accountsUpserted,
+        })
+        .where(eq(syncRuns.id, runId));
+
+      this.logger.log(
+        `Backfill succeeded for connection ${connectionId} (run ${runId}): ` +
+          `${counters.pagesFetched} window(s), +${counters.added} added, ${counters.modified} modified, ` +
+          `${counters.accountsUpserted} account(s)`,
+      );
+      return { connectionId, status: 'success', ...counters };
+    } catch (err) {
+      await this.recordFailure(connectionId, runId, err);
+      throw err;
+    }
+  }
+
+  /** Upserts one provider page (accounts/institutions + their transactions) within an existing transaction. */
+  private async applyPage(
+    tx: Database,
+    connectionId: string,
+    page: ProviderSyncPage,
+  ): Promise<{ accountsUpserted: number; added: number; modified: number }> {
+    const accountsUpserted = await this.connectionsService.upsertAccountsAndInstitutions(tx, connectionId, page);
+
+    const accountIdMap = await this.loadAccountMap(tx, connectionId);
+    const allTransactions = page.accounts.flatMap((a) =>
+      a.transactions.map((t) => ({ ...t, externalAccountId: a.externalAccountId })),
+    );
+
+    let added = 0;
+    let modified = 0;
+    if (allTransactions.length > 0) {
+      const existingIds = await this.loadExistingTransactionIds(
+        tx,
+        allTransactions.map((t) => t.externalTransactionId),
+      );
+      modified = allTransactions.filter((t) => existingIds.has(t.externalTransactionId)).length;
+      added = allTransactions.length - modified;
+
+      await this.upsertTransactions(tx, connectionId, allTransactions, accountIdMap);
+    }
+
+    return { accountsUpserted, added, modified };
+  }
+
   private async recordFailure(connectionId: string, runId: string, err: unknown) {
     const errorCode = err instanceof SimplefinApiError ? err.code : undefined;
     const errorMessage = (err as Error).message;
@@ -172,10 +312,14 @@ export class SyncService {
       .where(eq(syncRuns.id, runId));
   }
 
-  private async fetchWithRetry(credential: string, startDate: Date | undefined): Promise<ProviderSyncPage> {
+  private async fetchWithRetry(
+    credential: string,
+    startDate: Date | undefined,
+    endDate?: Date,
+  ): Promise<ProviderSyncPage> {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await this.simplefin.fetchAccountSet(credential, { startDate });
+        return await this.simplefin.fetchAccountSet(credential, { startDate, endDate });
       } catch (err) {
         if (attempt >= RETRY_DELAYS_MS.length || !isTransientSimplefinError(err)) {
           throw err;
