@@ -1,5 +1,5 @@
 {
   "mcpServers": {
-    "finance-hub": { "command": "npm", "args": ["run", "mcp", "--silent"] }
+    "finance-hub": { "command": "node", "args": ["laravel/mcp/server.js"] }
   }
 }
