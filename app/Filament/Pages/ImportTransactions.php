@@ -70,7 +70,6 @@ class ImportTransactions extends Page implements HasForms
                                 ->label('Account')
                                 ->options(fn (): array => Account::query()
                                     ->whereHas('connection', fn (Builder $q) => $q
-                                        ->where('provider', 'manual')
                                         ->where('user_id', CurrentOwner::id()))
                                     ->get()
                                     ->mapWithKeys(fn (Account $account): array => [

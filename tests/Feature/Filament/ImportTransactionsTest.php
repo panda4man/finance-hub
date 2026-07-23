@@ -216,6 +216,21 @@ CSV;
     }
 });
 
+it('includes non-manual (synced) accounts in the account dropdown', function () {
+    $user = User::factory()->create();
+    actingAs($user);
+
+    $connection = Connection::create(['user_id' => $user->id, 'provider' => 'simplefin', 'status' => 'active']);
+    Account::create([
+        'connection_id' => $connection->id,
+        'external_account_id' => 'simplefin:acct-1',
+        'name' => 'Synced Checking',
+    ]);
+
+    Livewire::test(ImportTransactions::class)
+        ->assertSee('Synced Checking');
+});
+
 it('only shows existing manual accounts for the current user', function () {
     $user = User::factory()->create();
     $otherUser = User::factory()->create();
