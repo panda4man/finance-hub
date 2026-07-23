@@ -1,0 +1,52 @@
+name: finance-hub-laravel-test
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: finance
+      POSTGRES_PASSWORD: finance
+      POSTGRES_DB: finance_hub_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finance -d finance_hub_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  test:
+    build:
+      context: .
+      dockerfile: docker/test.Dockerfile
+    working_dir: /app
+    volumes:
+      - .:/app
+      - test_vendor:/app/vendor
+    environment:
+      APP_ENV: testing
+      APP_KEY: "base64:ZLAGM77OteGztRC3WDxfvL038f3bh+qQYYfEKJwm4cY="
+      APP_MAINTENANCE_DRIVER: file
+      BCRYPT_ROUNDS: 4
+      BROADCAST_CONNECTION: "null"
+      CACHE_STORE: array
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: finance_hub_test
+      DB_USERNAME: finance
+      DB_PASSWORD: finance
+      MAIL_MAILER: array
+      QUEUE_CONNECTION: sync
+      SESSION_DRIVER: array
+      PULSE_ENABLED: "false"
+      TELESCOPE_ENABLED: "false"
+      NIGHTWATCH_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["/usr/local/bin/test-entrypoint.sh"]
+    command: ["php", "artisan", "test", "--compact"]
+
+volumes:
+  test_vendor:

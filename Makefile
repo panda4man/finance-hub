@@ -1,6 +1,7 @@
-.PHONY: help build up down restart logs logs-app logs-db ps shell psql migrate seed sync-run sync-status backfill recategorize transactions admin-user clean
+.PHONY: help build up down restart logs logs-app logs-db ps shell psql migrate seed sync-run sync-status backfill recategorize transactions admin-user clean test-build test test-down
 
 COMPOSE := docker compose
+TEST_COMPOSE := docker compose -f docker-compose.test.yml
 
 .DEFAULT_GOAL := help
 
@@ -64,3 +65,12 @@ transactions: ## List synced transactions
 
 clean: ## Stop containers and remove volumes (DESTROYS DB DATA)
 	$(COMPOSE) down -v
+
+test-build: ## Build the Docker test image
+	$(TEST_COMPOSE) build test
+
+test: ## Run the test suite in Docker (scope with FILTER=SomeTestName)
+	$(TEST_COMPOSE) run --rm test php artisan test --compact $(if $(FILTER),--filter="$(FILTER)",)
+
+test-down: ## Stop and remove the test stack + ephemeral test db
+	$(TEST_COMPOSE) down -v
