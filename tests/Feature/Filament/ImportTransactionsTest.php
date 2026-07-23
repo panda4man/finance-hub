@@ -4,20 +4,28 @@ use App\Enums\ImportStatus;
 use App\Filament\Pages\ImportTransactions;
 use App\Models\Account;
 use App\Models\Connection;
-use App\Models\ImportRun;
+use App\Models\ImportTemplate;
+use App\Models\Institution;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\ImportService;
+use Database\Seeders\ImportTemplateSeeder;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Storage;
 
 use function Pest\Laravel\actingAs;
-use function Pest\Laravel\get;
 
 // shield:generate produces real Policy classes gated on Spatie permissions
 // that plain test users don't hold. These tests exercise resource behavior,
 // not the authorization layer, so bypass it here.
-beforeEach(fn () => Gate::before(fn () => true));
+beforeEach(function () {
+    Gate::before(fn () => true);
+    $this->seed(ImportTemplateSeeder::class);
+});
+
+function chaseTemplateIdForImportPage(): string
+{
+    return ImportTemplate::where('name', 'Chase checking')->value('id');
+}
 
 it('renders the import transactions page for authenticated user via Filament', function () {
     $user = User::factory()->create();
@@ -25,7 +33,7 @@ it('renders the import transactions page for authenticated user via Filament', f
 
     // The page is registered as a Filament page and accessible via the admin panel
     // We verify it can be instantiated without errors
-    $page = new ImportTransactions();
+    $page = new ImportTransactions;
     expect($page)->toBeInstanceOf(ImportTransactions::class);
 });
 
@@ -56,12 +64,12 @@ Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #
 DEBIT,07/22/2026,COFFEE,-10.50,Purchase,1000.00,
 CSV;
 
-    $path = sys_get_temp_dir() . '/' . uniqid('test_') . '.csv';
+    $path = sys_get_temp_dir().'/'.uniqid('test_').'.csv';
     file_put_contents($path, $csv);
 
     try {
         $service = app(ImportService::class);
-        $run = $service->importFile($account->id, $path, 'test.csv');
+        $run = $service->importFile($account->id, chaseTemplateIdForImportPage(), $path, 'test.csv');
 
         expect($run->status)->toBe(ImportStatus::Success);
         expect(Transaction::where('account_id', $account->id)->count())->toBe(1);
@@ -81,11 +89,11 @@ DEBIT,07/22/2026,COFFEE,-10.50,Purchase,1000.00,
 DEBIT,07/21/2026,LUNCH,-5.00,Purchase,1010.00,
 CSV;
 
-    $path = sys_get_temp_dir() . '/' . uniqid('test_') . '.csv';
+    $path = sys_get_temp_dir().'/'.uniqid('test_').'.csv';
     file_put_contents($path, $csv);
 
     try {
-        $run = $service->importFile($account->id, $path, 'test.csv');
+        $run = $service->importFile($account->id, chaseTemplateIdForImportPage(), $path, 'test.csv');
 
         expect($run->status)->toBe(ImportStatus::Success);
         expect($run->added_count)->toBe(2);
@@ -108,11 +116,11 @@ DEBIT,07/22/2026,COFFEE,-10.50,Purchase,1000.00,
 DEBIT,13/45/2026,BADDATE,-5.00,Purchase,1010.00,
 CSV;
 
-    $path = sys_get_temp_dir() . '/' . uniqid('test_') . '.csv';
+    $path = sys_get_temp_dir().'/'.uniqid('test_').'.csv';
     file_put_contents($path, $csv);
 
     try {
-        $run = $service->importFile($account->id, $path, 'test.csv');
+        $run = $service->importFile($account->id, chaseTemplateIdForImportPage(), $path, 'test.csv');
 
         expect($run->status)->toBe(ImportStatus::Partial);
         expect($run->added_count)->toBe(1);
@@ -132,12 +140,12 @@ Wrong,Header,Names,Here,Not,Chase,CSV
 DEBIT,07/22/2026,COFFEE,-10.50,Purchase,1000.00,
 CSV;
 
-    $path = sys_get_temp_dir() . '/' . uniqid('test_') . '.csv';
+    $path = sys_get_temp_dir().'/'.uniqid('test_').'.csv';
     file_put_contents($path, $csv);
 
     try {
-        $this->expectException(\RuntimeException::class);
-        $run = $service->importFile($account->id, $path, 'test.csv');
+        $this->expectException(RuntimeException::class);
+        $run = $service->importFile($account->id, chaseTemplateIdForImportPage(), $path, 'test.csv');
     } finally {
         @unlink($path);
     }
@@ -200,6 +208,20 @@ it('ImportService can create account with optional fields', function () {
     expect($account2->type)->toBeNull();
 });
 
+it('ImportService can create account with an institution', function () {
+    $user = User::factory()->create();
+    $institution = Institution::create([
+        'provider' => 'manual',
+        'external_org_id' => 'test-org',
+        'name' => 'Test Bank',
+    ]);
+
+    $service = app(ImportService::class);
+    $account = $service->createManualAccount($user->id, 'Checking', null, null, $institution->id);
+
+    expect($account->institution_id)->toBe($institution->id);
+});
+
 it('ImportService preserves original balance from latest transaction in file order', function () {
     $user = User::factory()->create();
     $service = app(ImportService::class);
@@ -212,11 +234,11 @@ DEBIT,07/22/2026,MIDDLE,-10.00,Purchase,990.00,
 DEBIT,07/22/2026,OLDEST,-15.00,Purchase,980.00,
 CSV;
 
-    $path = sys_get_temp_dir() . '/' . uniqid('test_') . '.csv';
+    $path = sys_get_temp_dir().'/'.uniqid('test_').'.csv';
     file_put_contents($path, $csv);
 
     try {
-        $run = $service->importFile($account->id, $path, 'test.csv');
+        $run = $service->importFile($account->id, chaseTemplateIdForImportPage(), $path, 'test.csv');
 
         $account->refresh();
         // The first row's balance (1000.00) should be used

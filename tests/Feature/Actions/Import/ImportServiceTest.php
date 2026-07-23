@@ -2,18 +2,27 @@
 
 use App\Enums\ConnectionStatus;
 use App\Enums\ImportStatus;
-use App\Models\Account;
 use App\Models\Connection;
 use App\Models\ImportRun;
+use App\Models\ImportTemplate;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\ImportService;
+use Database\Seeders\ImportTemplateSeeder;
+
+beforeEach(fn () => $this->seed(ImportTemplateSeeder::class));
 
 function createImportServiceTestCsvFile(string $content): string
 {
-    $path = sys_get_temp_dir() . '/' . uniqid('import_service_test_') . '.csv';
+    $path = sys_get_temp_dir().'/'.uniqid('import_service_test_').'.csv';
     file_put_contents($path, $content);
+
     return $path;
+}
+
+function chaseTemplateId(): string
+{
+    return ImportTemplate::where('name', 'Chase checking')->value('id');
 }
 
 it('ensures a manual connection exists for a user or finds existing one', function () {
@@ -56,7 +65,7 @@ CSV;
     $path = createImportServiceTestCsvFile($csv);
 
     try {
-        $run = $service->importFile($account->id, $path, 'test.csv');
+        $run = $service->importFile($account->id, chaseTemplateId(), $path, 'test.csv');
 
         expect($run->status)->toBe(ImportStatus::Success);
         expect($run->added_count)->toBe(2);
@@ -84,7 +93,7 @@ CSV;
     $path = createImportServiceTestCsvFile($csv);
 
     try {
-        $run = $service->importFile($account->id, $path, 'test.csv');
+        $run = $service->importFile($account->id, chaseTemplateId(), $path, 'test.csv');
 
         expect($run->status)->toBe(ImportStatus::Partial);
         expect($run->added_count)->toBe(2);
@@ -110,7 +119,7 @@ CSV;
     $path = createImportServiceTestCsvFile($csv);
 
     try {
-        $run = $service->importFile($account->id, $path, 'test.csv');
+        $run = $service->importFile($account->id, chaseTemplateId(), $path, 'test.csv');
 
         expect($run->status)->toBe(ImportStatus::Failed);
         expect($run->added_count)->toBe(0);
@@ -133,9 +142,9 @@ CSV;
     $path = createImportServiceTestCsvFile($csv);
 
     try {
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Unrecognized CSV header');
-        $service->importFile($account->id, $path, 'test.csv');
+        $service->importFile($account->id, chaseTemplateId(), $path, 'test.csv');
 
         // Verify the run was recorded as Failed
         $run = ImportRun::where('account_id', $account->id)->firstOrFail();
@@ -160,7 +169,7 @@ CSV;
     $path = createImportServiceTestCsvFile($csv);
 
     try {
-        $run = $service->importFile($account->id, $path, 'test.csv');
+        $run = $service->importFile($account->id, chaseTemplateId(), $path, 'test.csv');
 
         $account->refresh();
         // Should use the 07/22 row's balance, not the blank 07/23 row, and not the 07/21 row
@@ -184,7 +193,7 @@ CSV;
     $path1 = createImportServiceTestCsvFile($csv1);
 
     try {
-        $run1 = $service->importFile($account->id, $path1, 'test1.csv');
+        $run1 = $service->importFile($account->id, chaseTemplateId(), $path1, 'test1.csv');
         $account->refresh();
         expect((float) $account->current_balance)->toBe(1000.00);
         expect($account->balances_updated_at->toDateString())->toBe('2026-07-22');
@@ -197,7 +206,7 @@ CSV;
         $path2 = createImportServiceTestCsvFile($csv2);
 
         try {
-            $run2 = $service->importFile($account->id, $path2, 'test2.csv');
+            $run2 = $service->importFile($account->id, chaseTemplateId(), $path2, 'test2.csv');
             $account->refresh();
 
             // Balance should not regress to 500.00
@@ -227,7 +236,7 @@ CSV;
     $path = createImportServiceTestCsvFile($csv);
 
     try {
-        $run = $service->importFile($account->id, $path, 'test.csv');
+        $run = $service->importFile($account->id, chaseTemplateId(), $path, 'test.csv');
 
         $account->refresh();
         // The first row's balance (1000.00) should be used, not the last (1030.00)
@@ -250,7 +259,7 @@ CSV;
     $path = createImportServiceTestCsvFile($csv);
 
     try {
-        $run = $service->importFile($account->id, $path, 'test.csv');
+        $run = $service->importFile($account->id, chaseTemplateId(), $path, 'test.csv');
 
         $account->refresh();
         expect($account->current_balance)->toBeNull();
@@ -272,7 +281,7 @@ CSV;
     $path = createImportServiceTestCsvFile($csv);
 
     try {
-        $run = $service->importFile($account->id, $path, 'test.csv');
+        $run = $service->importFile($account->id, chaseTemplateId(), $path, 'test.csv');
 
         expect($run->file_name)->toBe('test.csv');
         expect($run->status)->toBe(ImportStatus::Success);

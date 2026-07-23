@@ -6,17 +6,16 @@ use App\Models\Category;
 use App\Models\Connection;
 use App\Models\Transaction;
 use App\Models\User;
-use App\Support\Import\ParsedChaseRow;
-use Carbon\CarbonImmutable;
+use App\Support\Import\ParsedImportRow;
 use Illuminate\Support\Str;
 
-function makeParsedChaseRow(
+function makeParsedImportRow(
     string $id,
     string $description = 'Coffee Shop',
     float $amount = 10.50,
     ?float $balance = 1000.00,
-): ParsedChaseRow {
-    return new ParsedChaseRow(
+): ParsedImportRow {
+    return new ParsedImportRow(
         externalTransactionId: $id,
         postingDate: '2026-07-22',
         amount: $amount,
@@ -58,8 +57,8 @@ it('inserts new imported transactions and reports them as added', function () {
     [$connection, $account] = makeManualConnectionWithAccount();
 
     $rows = [
-        makeParsedChaseRow('csv:txn-1'),
-        makeParsedChaseRow('csv:txn-2'),
+        makeParsedImportRow('csv:txn-1'),
+        makeParsedImportRow('csv:txn-2'),
     ];
 
     $action = app(UpsertImportedTransactionsAction::class);
@@ -76,7 +75,7 @@ it('inserts new imported transactions and reports them as added', function () {
 it('detects duplicate transactions on re-import and reports them as duplicate', function () {
     [$connection, $account] = makeManualConnectionWithAccount();
 
-    $rows = [makeParsedChaseRow('csv:txn-1')];
+    $rows = [makeParsedImportRow('csv:txn-1')];
     $action = app(UpsertImportedTransactionsAction::class);
 
     $firstResult = $action->execute($account->id, $connection->id, $rows);
@@ -92,8 +91,8 @@ it('handles idempotency: second import of same file adds zero new transactions',
     [$connection, $account] = makeManualConnectionWithAccount();
 
     $rows = [
-        makeParsedChaseRow('csv:txn-1', 'COFFEE', 10.50),
-        makeParsedChaseRow('csv:txn-2', 'LUNCH', 15.00),
+        makeParsedImportRow('csv:txn-1', 'COFFEE', 10.50),
+        makeParsedImportRow('csv:txn-2', 'LUNCH', 15.00),
     ];
 
     $action = app(UpsertImportedTransactionsAction::class);
@@ -112,7 +111,7 @@ it('handles idempotency: second import of same file adds zero new transactions',
 it('preserves user-owned columns on upsert', function () {
     [$connection, $account] = makeManualConnectionWithAccount();
 
-    $rows = [makeParsedChaseRow('csv:txn-1', 'COFFEE', 10.50)];
+    $rows = [makeParsedImportRow('csv:txn-1', 'COFFEE', 10.50)];
     $action = app(UpsertImportedTransactionsAction::class);
 
     // First import
@@ -134,7 +133,7 @@ it('preserves user-owned columns on upsert', function () {
 
     // Re-import with updated description and amount
     $updatedRows = [
-        makeParsedChaseRow('csv:txn-1', 'COFFEE SHOP UPDATED', 12.50),
+        makeParsedImportRow('csv:txn-1', 'COFFEE SHOP UPDATED', 12.50),
     ];
     $action->execute($account->id, $connection->id, $updatedRows);
 
@@ -166,15 +165,15 @@ it('handles mixed added and duplicate transactions in one pass', function () {
     $action = app(UpsertImportedTransactionsAction::class);
 
     // First import: add txn-1
-    $firstRows = [makeParsedChaseRow('csv:txn-1')];
+    $firstRows = [makeParsedImportRow('csv:txn-1')];
     $firstResult = $action->execute($account->id, $connection->id, $firstRows);
     expect($firstResult)->toBe(['added' => 1, 'duplicate' => 0]);
 
     // Second import: txn-1 is duplicate, txn-2 and txn-3 are new
     $secondRows = [
-        makeParsedChaseRow('csv:txn-1'),
-        makeParsedChaseRow('csv:txn-2'),
-        makeParsedChaseRow('csv:txn-3'),
+        makeParsedImportRow('csv:txn-1'),
+        makeParsedImportRow('csv:txn-2'),
+        makeParsedImportRow('csv:txn-3'),
     ];
     $secondResult = $action->execute($account->id, $connection->id, $secondRows);
 
@@ -187,7 +186,7 @@ it('recomputes category_id on every upsert even if description and amount are un
 
     $action = app(UpsertImportedTransactionsAction::class);
 
-    $rows = [makeParsedChaseRow('csv:txn-1', 'COFFEE', 10.50)];
+    $rows = [makeParsedImportRow('csv:txn-1', 'COFFEE', 10.50)];
     $firstResult = $action->execute($account->id, $connection->id, $rows);
 
     expect($firstResult)->toBe(['added' => 1, 'duplicate' => 0]);
