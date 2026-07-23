@@ -31,6 +31,7 @@ use Filament\Schemas\Components\Wizard\Step;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Storage;
 use SplFileObject;
 use UnitEnum;
@@ -162,9 +163,17 @@ class ImportTransactions extends Page implements HasForms
             ->submit('import');
     }
 
-    private function detectTemplateId(?string $storedPath): ?string
+    /**
+     * FileUpload's raw form state is always array-keyed internally, even for
+     * a single, non-multiple file — Get/Set read that raw state directly
+     * (they don't apply the component's own scalar-casting), so the stored
+     * path has to be pulled out of the array here.
+     */
+    private function detectTemplateId(mixed $rawFile): ?string
     {
-        if ($storedPath === null) {
+        $storedPath = Arr::first(Arr::wrap($rawFile));
+
+        if (blank($storedPath)) {
             return null;
         }
 

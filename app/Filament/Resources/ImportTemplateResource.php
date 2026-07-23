@@ -22,6 +22,7 @@ use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\StateCasts\KeyValueStateCast;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
@@ -41,6 +42,18 @@ class ImportTemplateResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->components([
+            ...self::detailsFields(),
+            ...self::columnMappingFields(),
+            ...self::idempotencyFields(),
+        ]);
+    }
+
+    /**
+     * @return list<\Filament\Schemas\Components\Component>
+     */
+    public static function detailsFields(): array
+    {
+        return [
             TextInput::make('name')
                 ->required()
                 ->maxLength(255),
@@ -55,6 +68,15 @@ class ImportTemplateResource extends Resource
             Toggle::make('flip_amount_sign')
                 ->label('Flip amount sign')
                 ->helperText('Enable if the source CSV shows money leaving the account as a negative number.'),
+        ];
+    }
+
+    /**
+     * @return list<\Filament\Schemas\Components\Component>
+     */
+    public static function columnMappingFields(): array
+    {
+        return [
             KeyValue::make('column_mapping')
                 ->label('Column mapping')
                 ->keyLabel('Role')
@@ -63,7 +85,12 @@ class ImportTemplateResource extends Resource
                 ->required()
                 ->rules([
                     fn (Get $get): Closure => function (string $attribute, mixed $value, Closure $fail) use ($get): void {
-                        $columnMapping = $value ?? [];
+                        // KeyValue's raw state is list-of-{key,value} entries
+                        // once it's been through any Livewire round-trip
+                        // (e.g. re-rendered mid-wizard) rather than a plain
+                        // array — normalize with Filament's own cast so
+                        // missing-role checks below see a plain array either way.
+                        $columnMapping = app(KeyValueStateCast::class)->get($value ?? []);
                         $missing = DedupeKeyValidator::missingCoreRoles($columnMapping);
 
                         $rawStrategy = $get('dedupe_strategy');
@@ -92,6 +119,15 @@ class ImportTemplateResource extends Resource
                 ->label('Expected header row')
                 ->helperText('The exact column headers, in order, used to auto-detect this template from an uploaded file.')
                 ->required(),
+        ];
+    }
+
+    /**
+     * @return list<\Filament\Schemas\Components\Component>
+     */
+    public static function idempotencyFields(): array
+    {
+        return [
             Select::make('dedupe_strategy')
                 ->label('Idempotency key')
                 ->options(DedupeStrategy::class)
@@ -115,7 +151,7 @@ class ImportTemplateResource extends Resource
                 ->helperText('⚠️ Default (date, amount, description) matches how every existing template behaves. Changing this changes what counts as "the same transaction" — on a template that already has imports, it can cause already-imported rows to duplicate or stop being recognized as updates. Only override if you know what you\'re doing.')
                 ->visible(fn (Get $get): bool => $get('dedupe_strategy') === DedupeStrategy::Composite->value)
                 ->required(fn (Get $get): bool => $get('dedupe_strategy') === DedupeStrategy::Composite->value),
-        ]);
+        ];
     }
 
     public static function table(Table $table): Table

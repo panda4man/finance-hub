@@ -13,6 +13,8 @@ use App\Models\User;
 use App\Services\ImportService;
 use Database\Seeders\ImportTemplateSeeder;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
+use Livewire\Livewire;
 
 use function Pest\Laravel\actingAs;
 
@@ -37,6 +39,27 @@ it('renders the import transactions page for authenticated user via Filament', f
     // We verify it can be instantiated without errors
     $page = new ImportTransactions;
     expect($page)->toBeInstanceOf(ImportTransactions::class);
+});
+
+it('detects an existing template from an uploaded file in the wizard without a type error', function () {
+    $user = User::factory()->create();
+    actingAs($user);
+
+    Storage::fake('local');
+
+    $storedPath = 'csv-imports/chase.csv';
+    Storage::disk('local')->put($storedPath, <<<'CSV'
+        Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #
+        DEBIT,07/22/2026,COFFEE,-10.50,Purchase,1000.00,
+        CSV);
+
+    // FileUpload's raw form state is always array-keyed internally, even for
+    // a single file, so fillForm() must write that shape directly — matches
+    // detectTemplateId()'s own Arr::wrap() unwrapping in ImportTransactions.
+    Livewire::test(ImportTransactions::class)
+        ->fillForm(['file' => [$storedPath]])
+        ->call('callSchemaComponentMethod', 'form.data::wizard', 'nextStep', ['currentStepIndex' => 1])
+        ->assertSet('data.detected_template_id', chaseTemplateIdForImportPage());
 });
 
 it('ImportService can create a new manual account', function () {
