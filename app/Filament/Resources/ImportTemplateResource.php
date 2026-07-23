@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\DedupeStrategy;
+use App\Enums\ImportColumnRole;
 use App\Filament\Resources\ImportTemplateResource\Pages\CreateImportTemplate;
 use App\Filament\Resources\ImportTemplateResource\Pages\EditImportTemplate;
 use App\Filament\Resources\ImportTemplateResource\Pages\ListImportTemplates;
@@ -11,12 +13,14 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\KeyValue;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\IconColumn;
@@ -53,12 +57,35 @@ class ImportTemplateResource extends Resource
                 ->label('Column mapping')
                 ->keyLabel('Role')
                 ->valueLabel('CSV column header')
-                ->helperText('Roles: date, description, amount are required. type, balance are optional.')
+                ->helperText('Roles: date, description, amount are required. type, balance are optional. Map external_id too if the source file has a real unique transaction id and you plan to use it as the idempotency key below.')
                 ->required(),
             TagsInput::make('header_signature')
                 ->label('Expected header row')
                 ->helperText('The exact column headers, in order, used to auto-detect this template from an uploaded file.')
                 ->required(),
+            Select::make('dedupe_strategy')
+                ->label('Idempotency key')
+                ->options(DedupeStrategy::class)
+                ->default(DedupeStrategy::Composite->value)
+                ->live()
+                ->required(),
+            CheckboxList::make('dedupe_columns')
+                ->label('Composite key fields')
+                ->options([
+                    ImportColumnRole::Date->value => 'Date',
+                    ImportColumnRole::Amount->value => 'Amount',
+                    ImportColumnRole::Description->value => 'Description',
+                    ImportColumnRole::Type->value => 'Type',
+                    ImportColumnRole::Balance->value => 'Balance',
+                ])
+                ->default([
+                    ImportColumnRole::Date->value,
+                    ImportColumnRole::Amount->value,
+                    ImportColumnRole::Description->value,
+                ])
+                ->helperText('⚠️ Default (date, amount, description) matches how every existing template behaves. Changing this changes what counts as "the same transaction" — on a template that already has imports, it can cause already-imported rows to duplicate or stop being recognized as updates. Only override if you know what you\'re doing.')
+                ->visible(fn (Get $get): bool => $get('dedupe_strategy') === DedupeStrategy::Composite->value)
+                ->required(fn (Get $get): bool => $get('dedupe_strategy') === DedupeStrategy::Composite->value),
         ]);
     }
 

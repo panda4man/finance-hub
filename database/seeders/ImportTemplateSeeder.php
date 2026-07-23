@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Enums\DedupeStrategy;
 use App\Enums\ImportColumnRole;
 use App\Models\ImportTemplate;
 use Illuminate\Database\Seeder;
@@ -32,6 +33,15 @@ class ImportTemplateSeeder extends Seeder
                 ],
                 'date_format' => 'm/d/Y',
                 'flip_amount_sign' => true,
+                // Stored explicitly (rather than relying on GenericCsvParser's
+                // default) so the dedupe shape that already-imported Chase
+                // transactions were hashed with is visible and pinned here.
+                'dedupe_strategy' => DedupeStrategy::Composite,
+                'dedupe_columns' => [
+                    ImportColumnRole::Date->value,
+                    ImportColumnRole::Amount->value,
+                    ImportColumnRole::Description->value,
+                ],
                 'header_signature' => ['Details', 'Posting Date', 'Description', 'Amount', 'Type', 'Balance', 'Check or Slip #'],
                 'is_seeded' => true,
             ],

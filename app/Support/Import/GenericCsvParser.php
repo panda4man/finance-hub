@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Import;
 
+use App\Enums\DedupeStrategy;
 use App\Enums\ImportColumnRole;
 use App\Models\ImportTemplate;
 use Carbon\Carbon;
@@ -13,17 +14,36 @@ use SplFileObject;
  * Parses a CSV export using an ImportTemplate's column mapping instead of a
  * hardcoded per-bank format.
  *
- * There is no stable transaction id or account identifier in typical bank
- * CSV exports, so external_transaction_id is synthesized from (account,
- * posting date, normalized amount, description) plus a 0-based occurrence
- * index for exact collisions within the same key group, assigned in
- * file-encounter order. This formula is intentionally NOT parameterized by
- * template — it's what the original Chase-only parser used, and changing it
- * would make every already-imported Chase transaction re-insert as a
- * duplicate on the next import.
+ * external_transaction_id is derived per the template's dedupe_strategy:
+ *
+ *  - Composite (default): synthesized from (account, plus the normalized
+ *    values of dedupe_columns — typically date/amount/description) since
+ *    most bank exports have no stable transaction id.
+ *  - ExternalId: the source file supplies a real unique id (mapped via the
+ *    "external_id" role), used directly instead of a synthesized key.
+ *
+ * Either way, a 0-based occurrence index is added for exact collisions
+ * within the same key group in one file, assigned in file-encounter order —
+ * this also guards ExternalId against a Postgres upsert() error if a file
+ * ever repeats the same id twice.
+ *
+ * The default composite shape ([date, amount, description]) is exactly
+ * what the original Chase-only parser hardcoded — changing a template's
+ * dedupe_columns changes what counts as "the same transaction" and can
+ * cause already-imported rows to duplicate or stop matching, hence the
+ * warning on that field in ImportTemplateResource.
  */
 final class GenericCsvParser
 {
+    /**
+     * @var list<string>
+     */
+    private const DEFAULT_DEDUPE_COLUMNS = [
+        ImportColumnRole::Date->value,
+        ImportColumnRole::Amount->value,
+        ImportColumnRole::Description->value,
+    ];
+
     /**
      * @return array{rows: list<ParsedImportRow>, failures: list<string>}
      */
@@ -72,13 +92,14 @@ final class GenericCsvParser
                     $rawRow[$mapping[ImportColumnRole::Description->value]] ?? null,
                     $this->mappedValue($rawRow, $mapping, ImportColumnRole::Balance),
                 );
+
+                $groupKey = $this->buildGroupKey($template, $accountId, $rawRow, $mapping, $date, $amount, $trimmedDescription);
             } catch (\Throwable $e) {
                 $failures[] = "Row {$lineNumber}: {$e->getMessage()}";
 
                 continue;
             }
 
-            $groupKey = $accountId.'|'.$date.'|'.number_format($amount, 2, '.', '').'|'.$trimmedDescription;
             $occurrence = $occurrences[$groupKey] ?? 0;
             $occurrences[$groupKey] = $occurrence + 1;
 
@@ -141,5 +162,43 @@ final class GenericCsvParser
         $headerName = $mapping[$role->value] ?? null;
 
         return $headerName === null ? null : ($rawRow[$headerName] ?? null);
+    }
+
+    /**
+     * @param  array<string, mixed>  $rawRow
+     * @param  array<string, string>  $mapping
+     */
+    private function buildGroupKey(
+        ImportTemplate $template,
+        string $accountId,
+        array $rawRow,
+        array $mapping,
+        string $date,
+        float $amount,
+        string $description,
+    ): string {
+        if ($template->dedupe_strategy === DedupeStrategy::ExternalId) {
+            $externalId = trim((string) ($this->mappedValue($rawRow, $mapping, ImportColumnRole::ExternalId) ?? ''));
+
+            if ($externalId === '') {
+                throw new \RuntimeException('missing external id value');
+            }
+
+            return $accountId.'|'.$externalId;
+        }
+
+        $dedupeColumns = $template->dedupe_columns ?: self::DEFAULT_DEDUPE_COLUMNS;
+
+        $parts = array_map(
+            fn (string $role): string => match ($role) {
+                ImportColumnRole::Date->value => $date,
+                ImportColumnRole::Amount->value => number_format($amount, 2, '.', ''),
+                ImportColumnRole::Description->value => $description,
+                default => trim((string) ($this->mappedValue($rawRow, $mapping, ImportColumnRole::from($role)) ?? '')),
+            },
+            $dedupeColumns,
+        );
+
+        return $accountId.'|'.implode('|', $parts);
     }
 }

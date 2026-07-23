@@ -11,4 +11,5 @@ enum ImportColumnRole: string
     case Amount = 'amount';
     case Type = 'type';
     case Balance = 'balance';
+    case ExternalId = 'external_id';
 }

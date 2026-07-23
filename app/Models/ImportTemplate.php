@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\DedupeStrategy;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +17,8 @@ class ImportTemplate extends Model
         'column_mapping',
         'date_format',
         'flip_amount_sign',
+        'dedupe_strategy',
+        'dedupe_columns',
         'header_signature',
         'is_seeded',
     ];
@@ -29,6 +32,8 @@ class ImportTemplate extends Model
             'column_mapping' => 'array',
             'header_signature' => 'array',
             'flip_amount_sign' => 'boolean',
+            'dedupe_strategy' => DedupeStrategy::class,
+            'dedupe_columns' => 'array',
             'is_seeded' => 'boolean',
         ];
     }

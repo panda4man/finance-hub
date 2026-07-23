@@ -18,6 +18,8 @@ return new class extends Migration
             $table->json('column_mapping');
             $table->text('date_format');
             $table->boolean('flip_amount_sign')->default(false);
+            $table->text('dedupe_strategy')->default('composite');
+            $table->json('dedupe_columns')->nullable();
             $table->json('header_signature');
             $table->boolean('is_seeded')->default(false);
             $table->timestampsTz();
