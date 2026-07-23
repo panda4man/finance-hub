@@ -3,12 +3,15 @@
 namespace App\Filament\Resources\ConnectionResource\RelationManagers;
 
 use App\Enums\AccountType;
+use App\Models\Account;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
+use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class AccountsRelationManager extends RelationManager
 {
@@ -32,7 +35,15 @@ class AccountsRelationManager extends RelationManager
         return $table
             ->recordTitleAttribute('name')
             ->defaultSort('name')
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with('institution:id,name,logo_base64'))
             ->columns([
+                ImageColumn::make('institution.logo_base64')
+                    ->label('Bank')
+                    ->circular()
+                    ->getStateUsing(fn (Account $record): ?string => $record->institution?->logo_base64
+                        ? 'data:image/png;base64,'.$record->institution->logo_base64
+                        : null)
+                    ->tooltip(fn (Account $record): ?string => $record->institution?->name),
                 TextColumn::make('name'),
                 TextColumn::make('mask')
                     ->label('Account #')

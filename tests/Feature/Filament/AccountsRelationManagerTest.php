@@ -7,6 +7,7 @@ use App\Filament\Resources\ConnectionResource\Pages\ViewConnection;
 use App\Filament\Resources\ConnectionResource\RelationManagers\AccountsRelationManager;
 use App\Models\Account;
 use App\Models\Connection;
+use App\Models\Institution;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -92,6 +93,51 @@ it('displays account_type values as badges in the table', function () {
     expect($accounts[1]->account_type->label())->toBe('Savings');
     expect($accounts[2]->account_type->label())->toBe('Credit card');
     expect($accounts[3]->account_type->label())->toBe('Other');
+});
+
+it('renders the institution logo column in the AccountsRelationManager table', function () {
+    $user = User::factory()->create();
+    $connection = makeConnectionForUser($user);
+
+    $institution = Institution::create([
+        'provider' => 'simplefin',
+        'external_org_id' => 'org-'.Str::random(8),
+        'name' => 'Test Bank',
+        'logo_base64' => base64_encode('fake-logo-bytes'),
+    ]);
+
+    $account = makeAccountForConnection($connection, [
+        'institution_id' => $institution->id,
+    ]);
+
+    actingAs($user);
+
+    Livewire::test(AccountsRelationManager::class, [
+        'ownerRecord' => $connection,
+        'pageClass' => EditConnection::class,
+    ])
+        ->assertSuccessful()
+        ->assertTableColumnStateSet(
+            'institution.logo_base64',
+            'data:image/png;base64,'.$institution->logo_base64,
+            record: $account,
+        );
+});
+
+it('renders a null institution logo when the account has no institution', function () {
+    $user = User::factory()->create();
+    $connection = makeConnectionForUser($user);
+
+    $account = makeAccountForConnection($connection);
+
+    actingAs($user);
+
+    Livewire::test(AccountsRelationManager::class, [
+        'ownerRecord' => $connection,
+        'pageClass' => EditConnection::class,
+    ])
+        ->assertSuccessful()
+        ->assertTableColumnStateSet('institution.logo_base64', null, record: $account);
 });
 
 it('updates account_type through the real Select field via the table EditAction', function () {
