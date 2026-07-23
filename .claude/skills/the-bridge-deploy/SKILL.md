@@ -5,7 +5,7 @@ name: the-bridge-deploy
 
 # the-bridge deploy
 
-REST API for deploying/monitoring Docker apps on Unraid. This repo (Chain Breakers Podcast)'s app id is stored in `BRIDGE_APP_ID` in this repo's `.env` — use it directly when the user says "deploy this app" / "deploy" with no other app named. Don't ask which app.
+REST API for deploying/monitoring Docker apps on Unraid. This repo's app id is stored in `BRIDGE_APP_ID` in this repo's `.env` — use it directly when the user says "deploy this app" / "deploy" with no other app named. Don't ask which app.
 
 **If anything here looks stale** (base URL, ports, token var name), re-resolve via `mcp__homelab-kb-http__query_service("the-bridge")` before proceeding. Full machine-readable contract: `GET http://the-bridge.homelab/api/openapi.json`.
 
