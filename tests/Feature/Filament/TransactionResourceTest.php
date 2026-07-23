@@ -1,13 +1,16 @@
 <?php
 
+use App\Enums\AccountType;
 use App\Enums\ConnectionStatus;
 use App\Filament\Resources\TransactionResource;
 use App\Filament\Resources\TransactionResource\Pages\ListTransactions;
 use App\Models\Account;
 use App\Models\Category;
 use App\Models\Connection;
+use App\Models\Institution;
 use App\Models\Transaction;
 use App\Models\User;
+use Filament\Tables\Columns\IconColumn;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -123,4 +126,106 @@ it('filters transactions by effective category via COALESCE, not the query alias
         ->filterTable('category', ['category_id' => $matching->id])
         ->assertCanSeeTableRecords([$viaCategoryId, $viaOverride])
         ->assertCanNotSeeTableRecords([$nonMatching]);
+});
+
+it('renders account type icon column correctly with account_type set', function () {
+    $user = User::factory()->create();
+    $connection = makeConnectionForOwner($user);
+    $account = makeAccountFor($connection);
+    $account->update(['account_type' => AccountType::CreditCard]);
+
+    $transaction = makeTransactionRow($account, $connection);
+
+    actingAs($user);
+
+    // Drives the real IconColumn::icon() closure defined in
+    // TransactionResource::table(), not a re-derivation of the same
+    // expression against the model directly.
+    Livewire::test(ListTransactions::class)
+        ->assertTableColumnExists(
+            'account.account_type',
+            fn (IconColumn $column): bool => $column->getIcon($column->getState()) === AccountType::CreditCard->icon(),
+            record: $transaction,
+        );
+});
+
+it('renders account type icon column with fallback to Other when account_type is null', function () {
+    $user = User::factory()->create();
+    $connection = makeConnectionForOwner($user);
+    $account = makeAccountFor($connection);
+    // Leave account_type as null
+
+    $transaction = makeTransactionRow($account, $connection);
+
+    actingAs($user);
+
+    Livewire::test(ListTransactions::class)
+        ->assertTableColumnExists(
+            'account.account_type',
+            fn (IconColumn $column): bool => $column->getIcon($column->getState()) === AccountType::Other->icon(),
+            record: $transaction,
+        );
+});
+
+it('renders bank logo image column correctly with logo_base64 present', function () {
+    $user = User::factory()->create();
+    $connection = makeConnectionForOwner($user);
+
+    $institution = Institution::create([
+        'provider' => 'simplefin',
+        'external_org_id' => 'org-123',
+        'name' => 'Chase Bank',
+        'logo_base64' => base64_encode('fake-png-data'),
+    ]);
+
+    $account = Account::create([
+        'connection_id' => $connection->id,
+        'institution_id' => $institution->id,
+        'external_account_id' => 'acc-'.Str::random(8),
+        'name' => 'Checking',
+        'account_type' => AccountType::Checking,
+    ]);
+
+    $transaction = makeTransactionRow($account, $connection);
+
+    actingAs($user);
+
+    // Drives the real ImageColumn::getStateUsing() closure defined in
+    // TransactionResource::table().
+    Livewire::test(ListTransactions::class)
+        ->assertTableColumnStateSet(
+            'account.institution.logo_base64',
+            'data:image/png;base64,'.base64_encode('fake-png-data'),
+            $transaction,
+        );
+});
+
+it('renders bank logo image column with null when no institution or no logo_base64', function () {
+    $user = User::factory()->create();
+    $connection = makeConnectionForOwner($user);
+    $account = makeAccountFor($connection);
+    // No institution attached
+
+    $transaction = makeTransactionRow($account, $connection);
+
+    actingAs($user);
+
+    Livewire::test(ListTransactions::class)
+        ->assertTableColumnStateSet('account.institution.logo_base64', null, $transaction);
+});
+
+it('eager-loads account_type and institution for the table columns', function () {
+    $user = User::factory()->create();
+    $connection = makeConnectionForOwner($user);
+    $account = makeAccountFor($connection);
+
+    makeTransactionRow($account, $connection);
+
+    actingAs($user);
+
+    $record = TransactionResource::getEloquentQuery()->first();
+
+    // Verify account is loaded with the right columns including account_type and institution_id
+    expect($record->relationLoaded('account'))->toBeTrue();
+    expect($record->account->relationLoaded('institution'))->toBeTrue();
 });

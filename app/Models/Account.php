@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AccountType;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -20,6 +21,7 @@ class Account extends Model
         'mask',
         'type',
         'subtype',
+        'account_type',
         'available_balance',
         'current_balance',
         'credit_limit',
@@ -33,6 +35,7 @@ class Account extends Model
     protected function casts(): array
     {
         return [
+            'account_type' => AccountType::class,
             'available_balance' => 'decimal:2',
             'current_balance' => 'decimal:2',
             'credit_limit' => 'decimal:2',

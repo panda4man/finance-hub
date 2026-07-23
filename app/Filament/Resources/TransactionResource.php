@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\AccountType;
 use App\Filament\Resources\TransactionResource\Pages\ListTransactions;
 use App\Models\Account;
 use App\Models\Category;
@@ -16,6 +17,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\IconColumn;
+use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\SelectColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
@@ -40,7 +42,8 @@ class TransactionResource extends Resource
             ->withEffectiveCategory()
             ->whereHas('connection', fn (Builder $query) => $query->where('user_id', CurrentOwner::id()))
             ->with([
-                'account:id,name',
+                'account:id,name,account_type,institution_id',
+                'account.institution:id,name,logo_base64',
                 'category:id,name,slug',
                 'userCategory:id,name,slug',
             ]);
@@ -72,6 +75,17 @@ class TransactionResource extends Resource
                 TextColumn::make('merchant_name')
                     ->searchable()
                     ->sortable(),
+                IconColumn::make('account.account_type')
+                    ->label('Type')
+                    ->icon(fn (?AccountType $state): Heroicon => ($state ?? AccountType::Other)->icon())
+                    ->tooltip(fn (Transaction $record): ?string => $record->account?->account_type?->label()),
+                ImageColumn::make('account.institution.logo_base64')
+                    ->label('Bank')
+                    ->circular()
+                    ->getStateUsing(fn (Transaction $record): ?string => $record->account?->institution?->logo_base64
+                        ? 'data:image/png;base64,'.$record->account->institution->logo_base64
+                        : null)
+                    ->tooltip(fn (Transaction $record): ?string => $record->account?->institution?->name),
                 TextColumn::make('account.name')
                     ->label('Account'),
                 TextColumn::make('effective_category')
