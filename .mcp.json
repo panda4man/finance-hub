@@ -1,5 +1,17 @@
 {
-  "mcpServers": {
-    "finance-hub": { "command": "node", "args": ["mcp/server.js"] }
-  }
+    "mcpServers": {
+        "finance-hub": {
+            "command": "node",
+            "args": [
+                "mcp/server.js"
+            ]
+        },
+        "laravel-boost": {
+            "command": "php",
+            "args": [
+                "artisan",
+                "boost:mcp"
+            ]
+        }
+    }
 }
