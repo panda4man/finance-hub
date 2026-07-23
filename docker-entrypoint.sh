@@ -11,6 +11,7 @@ if [ "${RUN_MIGRATIONS:-0}" = "1" ]; then
   php artisan db:seed --class=CategorySeeder --force
   php artisan db:seed --class=CategoryRuleSeeder --force
   php artisan db:seed --class=ImportTemplateSeeder --force
+  php artisan shield:generate --all --panel=admin --option=policies_and_permissions --no-interaction --ansi
 fi
 
 exec "$@"
