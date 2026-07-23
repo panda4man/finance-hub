@@ -11,6 +11,7 @@ use App\Models\Account;
 use App\Models\Connection;
 use App\Models\ImportRun;
 use App\Models\ImportTemplate;
+use App\Support\Import\DedupeKeyValidator;
 use App\Support\Import\GenericCsvParser;
 use App\Support\Import\ParsedImportRow;
 use Illuminate\Support\Facades\DB;
@@ -57,6 +58,12 @@ final class ImportService
     {
         $account = Account::findOrFail($accountId);
         $template = ImportTemplate::findOrFail($templateId);
+
+        // Reject before any ImportRun row exists — an invalid dedupe config
+        // isn't a per-file failure, it's a template that can never safely
+        // import anything, so no orphaned Running/Failed run should be left
+        // behind for it.
+        DedupeKeyValidator::assertMapped($template);
 
         $run = ImportRun::create([
             'connection_id' => $account->connection_id,

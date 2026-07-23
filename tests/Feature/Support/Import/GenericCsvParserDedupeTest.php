@@ -158,6 +158,181 @@ CSV;
     }
 });
 
+it('rejects the import upfront when a core parsing role (date) is unmapped, even if excluded from dedupe_columns', function () {
+    // dedupe_strategy only needs 'amount' per its own config, but date is
+    // still required for parsing every row regardless of dedupe_columns.
+    $template = makeImportTemplate([
+        'column_mapping' => [
+            'description' => 'Description',
+            'amount' => 'Amount',
+            // 'date' deliberately unmapped.
+        ],
+        'dedupe_columns' => ['amount'],
+        'header_signature' => ['Description', 'Amount'],
+    ]);
+
+    $csv = <<<'CSV'
+Description,Amount
+COFFEE,-10.50
+CSV;
+    $path = createDedupeTestCsvFile($csv);
+
+    try {
+        $parser = new GenericCsvParser;
+
+        expect(fn () => $parser->parse($template, 'acc-1', $path))
+            ->toThrow(RuntimeException::class, 'date');
+    } finally {
+        @unlink($path);
+    }
+});
+
+it('rejects the import upfront when a core parsing role is unmapped under the external_id strategy', function () {
+    $template = makeImportTemplate([
+        'column_mapping' => [
+            'description' => 'Description',
+            'amount' => 'Amount',
+            'external_id' => 'Confirmation #',
+            // 'date' deliberately unmapped.
+        ],
+        'dedupe_strategy' => DedupeStrategy::ExternalId,
+        'dedupe_columns' => null,
+        'header_signature' => ['Description', 'Amount', 'Confirmation #'],
+    ]);
+
+    $csv = <<<'CSV'
+Description,Amount,Confirmation #
+COFFEE,-10.50,ABC123
+CSV;
+    $path = createDedupeTestCsvFile($csv);
+
+    try {
+        $parser = new GenericCsvParser;
+
+        expect(fn () => $parser->parse($template, 'acc-1', $path))
+            ->toThrow(RuntimeException::class, 'date');
+    } finally {
+        @unlink($path);
+    }
+});
+
+it('rejects a stale/invalid role name in dedupe_columns with a clean error instead of crashing', function () {
+    $template = makeImportTemplate([
+        // Simulates a role that was renamed/removed after this template was
+        // saved (or a hand-edited row) — must fail cleanly, not throw an
+        // uncaught ValueError from ImportColumnRole::from().
+        'dedupe_columns' => ['date', 'amount', 'description', 'not_a_real_role'],
+    ]);
+
+    $csv = <<<'CSV'
+Date,Description,Amount
+2026-07-22,COFFEE,-10.50
+CSV;
+    $path = createDedupeTestCsvFile($csv);
+
+    try {
+        $parser = new GenericCsvParser;
+
+        expect(fn () => $parser->parse($template, 'acc-1', $path))
+            ->toThrow(RuntimeException::class, 'not_a_real_role');
+    } finally {
+        @unlink($path);
+    }
+});
+
+it('rejects the import upfront when external_id strategy has no external_id mapping', function () {
+    $template = makeImportTemplate([
+        'dedupe_strategy' => DedupeStrategy::ExternalId,
+        'dedupe_columns' => null,
+        // column_mapping deliberately omits 'external_id'.
+    ]);
+
+    $csv = <<<'CSV'
+Date,Description,Amount
+2026-07-22,COFFEE,-10.50
+CSV;
+    $path = createDedupeTestCsvFile($csv);
+
+    try {
+        $parser = new GenericCsvParser;
+
+        expect(fn () => $parser->parse($template, 'acc-1', $path))
+            ->toThrow(RuntimeException::class, 'external_id');
+    } finally {
+        @unlink($path);
+    }
+});
+
+it('rejects the import upfront when a composite dedupe column is not mapped', function () {
+    $template = makeImportTemplate([
+        // 'type' is not a key in column_mapping.
+        'dedupe_columns' => ['date', 'amount', 'description', 'type'],
+    ]);
+
+    $csv = <<<'CSV'
+Date,Description,Amount
+2026-07-22,COFFEE,-10.50
+CSV;
+    $path = createDedupeTestCsvFile($csv);
+
+    try {
+        $parser = new GenericCsvParser;
+
+        expect(fn () => $parser->parse($template, 'acc-1', $path))
+            ->toThrow(RuntimeException::class, 'type');
+    } finally {
+        @unlink($path);
+    }
+});
+
+it('still rejects a file whose header omits a mapped dedupe column', function () {
+    $template = makeImportTemplate([
+        'column_mapping' => [
+            'date' => 'Date',
+            'description' => 'Description',
+            'amount' => 'Amount',
+            'type' => 'Type',
+        ],
+        'dedupe_columns' => ['date', 'amount', 'description', 'type'],
+    ]);
+
+    // Header lacks the mapped "Type" column entirely.
+    $csv = <<<'CSV'
+Date,Description,Amount
+2026-07-22,COFFEE,-10.50
+CSV;
+    $path = createDedupeTestCsvFile($csv);
+
+    try {
+        $parser = new GenericCsvParser;
+
+        expect(fn () => $parser->parse($template, 'acc-1', $path))
+            ->toThrow(RuntimeException::class, 'expected a column named "Type"');
+    } finally {
+        @unlink($path);
+    }
+});
+
+it('does not throw for a fully-mapped composite template', function () {
+    $template = makeImportTemplate();
+
+    $csv = <<<'CSV'
+Date,Description,Amount
+2026-07-22,COFFEE,-10.50
+CSV;
+    $path = createDedupeTestCsvFile($csv);
+
+    try {
+        $parser = new GenericCsvParser;
+        $result = $parser->parse($template, 'acc-1', $path);
+
+        expect($result['rows'])->toHaveCount(1);
+        expect($result['failures'])->toBeEmpty();
+    } finally {
+        @unlink($path);
+    }
+});
+
 it('falls back to the default composite shape when dedupe_columns is null', function () {
     $template = makeImportTemplate(['dedupe_columns' => null]);
 

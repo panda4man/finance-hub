@@ -36,15 +36,6 @@ use SplFileObject;
 final class GenericCsvParser
 {
     /**
-     * @var list<string>
-     */
-    private const DEFAULT_DEDUPE_COLUMNS = [
-        ImportColumnRole::Date->value,
-        ImportColumnRole::Amount->value,
-        ImportColumnRole::Description->value,
-    ];
-
-    /**
      * @return array{rows: list<ParsedImportRow>, failures: list<string>}
      */
     public function parse(ImportTemplate $template, string $accountId, string $path): array
@@ -66,6 +57,8 @@ final class GenericCsvParser
                 throw new \RuntimeException("Unrecognized CSV header — expected a column named \"{$headerName}\" (for {$role}) per the \"{$template->name}\" template.");
             }
         }
+
+        DedupeKeyValidator::assertMapped($template);
 
         $columnCount = count($normalizedHeader);
         $rows = [];
@@ -187,7 +180,7 @@ final class GenericCsvParser
             return $accountId.'|'.$externalId;
         }
 
-        $dedupeColumns = $template->dedupe_columns ?: self::DEFAULT_DEDUPE_COLUMNS;
+        $dedupeColumns = $template->dedupe_columns ?: DedupeKeyValidator::DEFAULT_DEDUPE_COLUMNS;
 
         $parts = array_map(
             fn (string $role): string => match ($role) {

@@ -8,7 +8,9 @@ use App\Filament\Resources\ImportTemplateResource\Pages\CreateImportTemplate;
 use App\Filament\Resources\ImportTemplateResource\Pages\EditImportTemplate;
 use App\Filament\Resources\ImportTemplateResource\Pages\ListImportTemplates;
 use App\Models\ImportTemplate;
+use App\Support\Import\DedupeKeyValidator;
 use BackedEnum;
+use Closure;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -58,7 +60,34 @@ class ImportTemplateResource extends Resource
                 ->keyLabel('Role')
                 ->valueLabel('CSV column header')
                 ->helperText('Roles: date, description, amount are required. type, balance are optional. Map external_id too if the source file has a real unique transaction id and you plan to use it as the idempotency key below.')
-                ->required(),
+                ->required()
+                ->rules([
+                    fn (Get $get): Closure => function (string $attribute, mixed $value, Closure $fail) use ($get): void {
+                        $columnMapping = $value ?? [];
+                        $missing = DedupeKeyValidator::missingCoreRoles($columnMapping);
+
+                        $rawStrategy = $get('dedupe_strategy');
+                        $strategy = $rawStrategy instanceof DedupeStrategy
+                            ? $rawStrategy
+                            : DedupeStrategy::tryFrom((string) $rawStrategy);
+
+                        if ($strategy !== null) {
+                            $missing = [
+                                ...$missing,
+                                ...DedupeKeyValidator::missingDedupeRoles($strategy, $get('dedupe_columns'), $columnMapping),
+                            ];
+                        }
+
+                        $missing = array_values(array_unique($missing));
+
+                        if ($missing === []) {
+                            return;
+                        }
+
+                        $names = implode(', ', $missing);
+                        $fail("Map a CSV column for every required/idempotency-key role. Missing: {$names}.");
+                    },
+                ]),
             TagsInput::make('header_signature')
                 ->label('Expected header row')
                 ->helperText('The exact column headers, in order, used to auto-detect this template from an uploaded file.')

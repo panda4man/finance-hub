@@ -1,9 +1,11 @@
 <?php
 
+use App\Enums\DedupeStrategy;
 use App\Enums\ImportStatus;
 use App\Filament\Pages\ImportTransactions;
 use App\Models\Account;
 use App\Models\Connection;
+use App\Models\ImportRun;
 use App\Models\ImportTemplate;
 use App\Models\Institution;
 use App\Models\Transaction;
@@ -146,6 +148,46 @@ CSV;
     try {
         $this->expectException(RuntimeException::class);
         $run = $service->importFile($account->id, chaseTemplateIdForImportPage(), $path, 'test.csv');
+    } finally {
+        @unlink($path);
+    }
+});
+
+it('does not create an ImportRun when the template dedupe config is invalid', function () {
+    $user = User::factory()->create();
+    $service = app(ImportService::class);
+    $account = $service->createManualAccount($user->id, 'Test Account', null, null);
+
+    $invalidTemplate = ImportTemplate::create([
+        'institution_id' => null,
+        'name' => 'Invalid template',
+        'column_mapping' => [
+            'date' => 'Date',
+            'description' => 'Description',
+            'amount' => 'Amount',
+            // 'external_id' deliberately unmapped.
+        ],
+        'date_format' => 'Y-m-d',
+        'flip_amount_sign' => false,
+        'dedupe_strategy' => DedupeStrategy::ExternalId,
+        'dedupe_columns' => null,
+        'header_signature' => ['Date', 'Description', 'Amount'],
+        'is_seeded' => false,
+    ]);
+
+    $csv = <<<'CSV'
+Date,Description,Amount
+2026-07-22,COFFEE,-10.50
+CSV;
+
+    $path = sys_get_temp_dir().'/'.uniqid('test_').'.csv';
+    file_put_contents($path, $csv);
+
+    try {
+        expect(fn () => $service->importFile($account->id, $invalidTemplate->id, $path, 'test.csv'))
+            ->toThrow(RuntimeException::class);
+
+        expect(ImportRun::count())->toBe(0);
     } finally {
         @unlink($path);
     }
