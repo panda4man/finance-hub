@@ -231,6 +231,27 @@ it('includes non-manual (synced) accounts in the account dropdown', function () 
         ->assertSee('Synced Checking');
 });
 
+it('prefixes the bank name in the account dropdown', function () {
+    $user = User::factory()->create();
+    actingAs($user);
+
+    $connection = Connection::create(['user_id' => $user->id, 'provider' => 'simplefin', 'status' => 'active']);
+    $institution = Institution::create([
+        'provider' => 'simplefin',
+        'external_org_id' => 'org-1',
+        'name' => 'Chase',
+    ]);
+    Account::create([
+        'connection_id' => $connection->id,
+        'institution_id' => $institution->id,
+        'external_account_id' => 'simplefin:acct-1',
+        'name' => 'Checking',
+    ]);
+
+    Livewire::test(ImportTransactions::class)
+        ->assertSee('Chase Checking');
+});
+
 it('only shows existing manual accounts for the current user', function () {
     $user = User::factory()->create();
     $otherUser = User::factory()->create();

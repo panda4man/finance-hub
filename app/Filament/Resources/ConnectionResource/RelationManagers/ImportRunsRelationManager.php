@@ -6,6 +6,7 @@ use App\Enums\ImportStatus;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class ImportRunsRelationManager extends RelationManager
 {
@@ -16,8 +17,9 @@ class ImportRunsRelationManager extends RelationManager
         return $table
             ->recordTitleAttribute('id')
             ->defaultSort('started_at', 'desc')
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with('account.institution'))
             ->columns([
-                TextColumn::make('account.name')
+                TextColumn::make('account.display_name')
                     ->label('Account'),
                 TextColumn::make('file_name')
                     ->label('File'),

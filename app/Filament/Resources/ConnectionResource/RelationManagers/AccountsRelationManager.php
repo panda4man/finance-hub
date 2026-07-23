@@ -44,7 +44,8 @@ class AccountsRelationManager extends RelationManager
                         ? 'data:image/png;base64,'.$record->institution->logo_base64
                         : null)
                     ->tooltip(fn (Account $record): ?string => $record->institution?->name),
-                TextColumn::make('name'),
+                TextColumn::make('display_name')
+                    ->label('Name'),
                 TextColumn::make('mask')
                     ->label('Account #')
                     ->formatStateUsing(fn (?string $state): string => $state ? "••{$state}" : '—'),

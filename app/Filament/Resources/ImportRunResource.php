@@ -32,7 +32,7 @@ class ImportRunResource extends Resource
     {
         return parent::getEloquentQuery()
             ->whereHas('connection', fn (Builder $query) => $query->where('user_id', CurrentOwner::id()))
-            ->with(['connection', 'account']);
+            ->with(['connection', 'account.institution']);
     }
 
     public static function canCreate(): bool
@@ -60,7 +60,7 @@ class ImportRunResource extends Resource
         return $table
             ->defaultSort('started_at', 'desc')
             ->columns([
-                TextColumn::make('account.name')
+                TextColumn::make('account.display_name')
                     ->label('Account'),
                 TextColumn::make('file_name')
                     ->label('File'),
@@ -99,7 +99,9 @@ class ImportRunResource extends Resource
                     ->label('Account')
                     ->options(fn (): array => Account::query()
                         ->whereHas('connection', fn (Builder $q) => $q->where('user_id', CurrentOwner::id()))
-                        ->pluck('name', 'id')
+                        ->with('institution')
+                        ->get()
+                        ->mapWithKeys(fn (Account $account): array => [$account->id => $account->display_name])
                         ->all()),
             ]);
     }

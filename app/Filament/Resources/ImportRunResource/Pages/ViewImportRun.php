@@ -14,7 +14,7 @@ class ViewImportRun extends ViewRecord
     public function infolist(Schema $schema): Schema
     {
         return $schema->components([
-            TextEntry::make('account.name')
+            TextEntry::make('account.display_name')
                 ->label('Account'),
             TextEntry::make('file_name')
                 ->label('File'),

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\AccountType;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -41,6 +42,17 @@ class Account extends Model
             'credit_limit' => 'decimal:2',
             'balances_updated_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Account name prefixed with its bank, so accounts stay distinguishable
+     * anywhere they're listed without a bank name/logo alongside them.
+     */
+    protected function displayName(): Attribute
+    {
+        return Attribute::get(fn (): string => $this->institution
+            ? "{$this->institution->name} {$this->name}"
+            : $this->name);
     }
 
     /**

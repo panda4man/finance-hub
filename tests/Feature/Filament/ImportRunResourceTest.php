@@ -115,7 +115,7 @@ it('renders import runs with correct columns and status badges', function () {
 
     Livewire::test(ListImportRuns::class)
         ->assertCanSeeTableRecords([$run])
-        ->assertTableColumnExists('account.name')
+        ->assertTableColumnExists('account.display_name')
         ->assertTableColumnExists('file_name')
         ->assertTableColumnExists('status')
         ->assertTableColumnExists('added_count')

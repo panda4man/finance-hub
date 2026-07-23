@@ -71,11 +71,12 @@ class ImportTransactions extends Page implements HasForms
                                 ->options(fn (): array => Account::query()
                                     ->whereHas('connection', fn (Builder $q) => $q
                                         ->where('user_id', CurrentOwner::id()))
+                                    ->with('institution')
                                     ->get()
                                     ->mapWithKeys(fn (Account $account): array => [
                                         $account->id => $account->mask
-                                            ? "{$account->name} (••{$account->mask})"
-                                            : $account->name,
+                                            ? "{$account->display_name} (••{$account->mask})"
+                                            : $account->display_name,
                                     ])
                                     ->all())
                                 ->visible(fn (Get $get): bool => ! $get('create_new_account'))

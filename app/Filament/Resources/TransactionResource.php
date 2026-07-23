@@ -86,7 +86,7 @@ class TransactionResource extends Resource
                         ? 'data:image/png;base64,'.$record->account->institution->logo_base64
                         : null)
                     ->tooltip(fn (Transaction $record): ?string => $record->account?->institution?->name),
-                TextColumn::make('account.name')
+                TextColumn::make('account.display_name')
                     ->label('Account'),
                 TextColumn::make('effective_category')
                     ->label('Category')
@@ -119,8 +119,10 @@ class TransactionResource extends Resource
                     ->multiple()
                     ->options(fn (): array => Account::query()
                         ->whereHas('connection', fn (Builder $query) => $query->where('user_id', CurrentOwner::id()))
+                        ->with('institution')
                         ->orderBy('name')
-                        ->pluck('name', 'id')
+                        ->get()
+                        ->mapWithKeys(fn (Account $account): array => [$account->id => $account->display_name])
                         ->all()),
                 Filter::make('category')
                     ->schema([
