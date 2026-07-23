@@ -12,6 +12,7 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Services\ImportService;
 use Database\Seeders\ImportTemplateSeeder;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
@@ -59,6 +60,29 @@ it('detects an existing template from an uploaded file in the wizard without a t
     Livewire::test(ImportTransactions::class)
         ->fillForm(['file' => [$storedPath]])
         ->call('callSchemaComponentMethod', 'form.data::wizard', 'nextStep', ['currentStepIndex' => 1])
+        ->assertSet('data.detected_template_id', chaseTemplateIdForImportPage());
+});
+
+it('detects a template from a real wizard upload without a 500', function () {
+    $user = User::factory()->create();
+    actingAs($user);
+
+    Storage::fake('local');
+
+    $csv = <<<'CSV'
+        Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #
+        DEBIT,07/22/2026,COFFEE,-10.50,Purchase,1000.00,
+        CSV;
+
+    // Mirrors the real upload flow: a genuine UploadedFile pushed through
+    // Livewire's ->set(), which stores it as a TemporaryUploadedFile on the
+    // temp disk rather than the already-final path the other test injects.
+    $file = UploadedFile::fake()->createWithContent('chase.csv', $csv);
+
+    Livewire::test(ImportTransactions::class)
+        ->set('data.file', $file)
+        ->call('callSchemaComponentMethod', 'form.data::wizard', 'nextStep', ['currentStepIndex' => 1])
+        ->assertHasNoErrors()
         ->assertSet('data.detected_template_id', chaseTemplateIdForImportPage());
 });
 

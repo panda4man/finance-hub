@@ -33,6 +33,7 @@ use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use SplFileObject;
 use UnitEnum;
 
@@ -168,16 +169,27 @@ class ImportTransactions extends Page implements HasForms
      * a single, non-multiple file — Get/Set read that raw state directly
      * (they don't apply the component's own scalar-casting), so the stored
      * path has to be pulled out of the array here.
+     *
+     * Before the wizard's final submit, that raw value is a live
+     * TemporaryUploadedFile, not yet moved to the component's configured
+     * disk/directory — casting it to a string (e.g. via Arr::wrap()) yields
+     * SplFileInfo's internal placeholder pathname (an empty tmpfile()),
+     * not the real upload, so its real location must be read via
+     * getRealPath() instead. Only a fully-submitted, already-saved file is a
+     * plain string path relative to disk('local').
      */
     private function detectTemplateId(mixed $rawFile): ?string
     {
-        $storedPath = Arr::first(Arr::wrap($rawFile));
+        $uploadedFile = Arr::first(Arr::wrap($rawFile));
 
-        if (blank($storedPath)) {
+        if (blank($uploadedFile)) {
             return null;
         }
 
-        $absolutePath = Storage::disk('local')->path($storedPath);
+        $absolutePath = $uploadedFile instanceof TemporaryUploadedFile
+            ? $uploadedFile->getRealPath()
+            : Storage::disk('local')->path($uploadedFile);
+
         $file = new SplFileObject($absolutePath, 'r');
         $file->setCsvControl(',', '"', '\\');
         $header = $file->fgetcsv();
