@@ -69,6 +69,9 @@ class TransactionResource extends Resource
                 TextColumn::make('date')
                     ->date()
                     ->sortable(),
+                TextColumn::make('amount')
+                    ->money('usd')
+                    ->sortable(),
                 TextColumn::make('name')
                     ->searchable()
                     ->sortable(),
@@ -102,9 +105,6 @@ class TransactionResource extends Resource
                     ->label('Category override')
                     ->options(fn (): array => Category::query()->where('is_active', true)->orderBy('name')->pluck('name', 'id')->all())
                     ->selectablePlaceholder(true),
-                TextColumn::make('amount')
-                    ->money('usd')
-                    ->sortable(),
                 IconColumn::make('pending')
                     ->boolean(),
                 ToggleColumn::make('is_hidden')
