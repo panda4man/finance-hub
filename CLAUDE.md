@@ -1,4 +1,4 @@
-See `AGENTS.md` for the Code Exploration Policy (jCodemunch-MCP tool routing), Session-Aware Routing, and Model-Driven Tool Tiering rules — canonical there, shared across agent tooling in this repo.
+See `AGENTS.md` for the Code Exploration Policy (localmunch-MCP tool routing) — canonical there, shared across agent tooling in this repo.
 
 ===
 
