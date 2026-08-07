@@ -1,9 +1,13 @@
 <?php
 
 use App\Enums\DedupeStrategy;
+use App\Filament\Resources\ImportTemplateResource;
 use App\Filament\Resources\ImportTemplateResource\Pages\CreateImportTemplate;
+use App\Filament\Resources\ImportTemplateResource\Pages\EditImportTemplate;
+use App\Filament\Resources\ImportTemplateResource\Pages\ListImportTemplates;
 use App\Models\ImportTemplate;
 use App\Models\User;
+use Filament\Actions\Testing\TestAction;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
@@ -159,6 +163,84 @@ it('prefills column mapping and idempotency key from an uploaded sample CSV', fu
     expect($template->dedupe_columns)->toBeNull();
 });
 
+it('persists an anonymized 5-row snapshot of the uploaded sample CSV', function () {
+    $user = User::factory()->create();
+    actingAs($user);
+
+    Storage::fake('local');
+
+    $storedPath = 'csv-template-samples/sample.csv';
+    Storage::disk('local')->put($storedPath, <<<'CSV'
+        Date,Description,Amount,Confirmation #
+        2026-01-01,Coffee,-5.00,A1
+        2026-01-02,Lunch,-12.00,A2
+        2026-01-03,Groceries,-45.10,A3
+        2026-01-04,Gas,-38.20,A4
+        2026-01-05,Rent,-1200.00,A5
+        CSV);
+
+    Livewire::test(CreateImportTemplate::class)
+        ->fillForm(['sample_file' => [$storedPath]])
+        ->call('callSchemaComponentMethod', 'form.data::wizard', 'nextStep', ['currentStepIndex' => 0])
+        ->fillForm([
+            'name' => 'Snapshot bank',
+            'date_format' => 'Y-m-d',
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $template = ImportTemplate::where('name', 'Snapshot bank')->firstOrFail();
+
+    expect($template->sample_snapshot)->not->toBeNull();
+    expect($template->sample_snapshot['header'])->toBe(['Date', 'Description', 'Amount', 'Confirmation #']);
+    // Header + 4 data rows max, even though the sample file has 5 data rows.
+    expect($template->sample_snapshot['rows'])->toHaveCount(4);
+    // date passes through unmasked; description/amount/external_id are masked.
+    expect($template->sample_snapshot['rows'][0])->toBe(['2026-01-01', 'XXXXXX', '-9.99', 'X9']);
+
+    // The uploaded file itself is still discarded, same as before.
+    Storage::disk('local')->assertMissing($storedPath);
+});
+
+it('shows the anonymized sample snapshot on the edit page when present', function () {
+    $user = User::factory()->create();
+    actingAs($user);
+
+    $template = ImportTemplate::create([
+        'name' => 'With snapshot',
+        'column_mapping' => ['date' => 'Date', 'description' => 'Description', 'amount' => 'Amount'],
+        'date_format' => 'Y-m-d',
+        'dedupe_strategy' => DedupeStrategy::Composite->value,
+        'dedupe_columns' => ['date', 'amount', 'description'],
+        'header_signature' => ['Date', 'Description', 'Amount'],
+        'sample_snapshot' => [
+            'header' => ['Date', 'Description', 'Amount'],
+            'rows' => [['2026-01-01', 'XXXXXX', '-9.99']],
+        ],
+    ]);
+
+    Livewire::test(EditImportTemplate::class, ['record' => $template->getRouteKey()])
+        ->assertSee('Candidate CSV sample')
+        ->assertSee('XXXXXX');
+});
+
+it('hides the sample snapshot section when the template has none', function () {
+    $user = User::factory()->create();
+    actingAs($user);
+
+    $template = ImportTemplate::create([
+        'name' => 'No snapshot',
+        'column_mapping' => ['date' => 'Date', 'description' => 'Description', 'amount' => 'Amount'],
+        'date_format' => 'Y-m-d',
+        'dedupe_strategy' => DedupeStrategy::Composite->value,
+        'dedupe_columns' => ['date', 'amount', 'description'],
+        'header_signature' => ['Date', 'Description', 'Amount'],
+    ]);
+
+    Livewire::test(EditImportTemplate::class, ['record' => $template->getRouteKey()])
+        ->assertDontSee('Candidate CSV sample');
+});
+
 it('leaves existing form values untouched when no sample CSV is uploaded', function () {
     $user = User::factory()->create();
     actingAs($user);
@@ -167,4 +249,64 @@ it('leaves existing form values untouched when no sample CSV is uploaded', funct
         ->fillForm(['dedupe_strategy' => DedupeStrategy::ExternalId->value])
         ->call('callSchemaComponentMethod', 'form.data::wizard', 'nextStep', ['currentStepIndex' => 0])
         ->assertSet('data.dedupe_strategy', DedupeStrategy::ExternalId->value);
+});
+
+it('links the list page clone action to the create wizard with the source template preselected', function () {
+    $user = User::factory()->create();
+    actingAs($user);
+
+    $source = ImportTemplate::create([
+        'name' => 'Source bank',
+        'column_mapping' => ['date' => 'Date', 'description' => 'Description', 'amount' => 'Amount'],
+        'date_format' => 'Y-m-d',
+        'dedupe_strategy' => DedupeStrategy::Composite->value,
+        'dedupe_columns' => ['date', 'amount', 'description'],
+        'header_signature' => ['Date', 'Description', 'Amount'],
+    ]);
+
+    Livewire::test(ListImportTemplates::class)
+        ->assertActionExists(TestAction::make('clone')->table($source))
+        ->assertActionHasUrl(
+            TestAction::make('clone')->table($source),
+            ImportTemplateResource::getUrl('create', ['clone_from' => $source->getKey()]),
+        );
+});
+
+it('prefills the wizard from a source template when cloning, leaving the sample CSV step blank', function () {
+    $user = User::factory()->create();
+    actingAs($user);
+
+    $source = ImportTemplate::create([
+        'name' => 'Source bank',
+        'column_mapping' => ['date' => 'Date', 'description' => 'Description', 'amount' => 'Amount'],
+        'date_format' => 'Y-m-d',
+        'flip_amount_sign' => true,
+        'dedupe_strategy' => DedupeStrategy::Composite->value,
+        'dedupe_columns' => ['date', 'amount', 'description'],
+        'header_signature' => ['Date', 'Description', 'Amount'],
+        'sample_snapshot' => ['header' => ['Date'], 'rows' => [['2026-01-01']]],
+    ]);
+
+    // KeyValue/TagsInput/CheckboxList hold their own internal
+    // representations while live rather than the plain shape stored on the
+    // model (same caveat noted on the sample-CSV prefill test above), so
+    // this drives the wizard through to an actual saved record for those
+    // fields and only asserts mid-form state for plain inputs.
+    Livewire::test(CreateImportTemplate::class)
+        ->call('fillFromCloneSource', $source->getKey())
+        ->assertSet('data.name', 'Source bank (copy)')
+        ->assertSet('data.date_format', 'Y-m-d')
+        ->assertSet('data.flip_amount_sign', true)
+        ->assertSet('data.dedupe_strategy', DedupeStrategy::Composite->value)
+        ->assertSet('data.dedupe_columns', $source->dedupe_columns)
+        ->assertSet('data.sample_file', [])
+        ->assertSet('data.sample_snapshot', null)
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $clone = ImportTemplate::where('name', 'Source bank (copy)')->firstOrFail();
+    expect($clone->column_mapping)->toBe($source->column_mapping);
+    expect($clone->header_signature)->toBe($source->header_signature);
+    expect($clone->dedupe_columns)->toBe($source->dedupe_columns);
+    expect($clone->sample_snapshot)->toBeNull();
 });

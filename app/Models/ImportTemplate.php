@@ -20,6 +20,7 @@ class ImportTemplate extends Model
         'dedupe_strategy',
         'dedupe_columns',
         'header_signature',
+        'sample_snapshot',
         'is_seeded',
     ];
 
@@ -31,6 +32,7 @@ class ImportTemplate extends Model
         return [
             'column_mapping' => 'array',
             'header_signature' => 'array',
+            'sample_snapshot' => 'array',
             'flip_amount_sign' => 'boolean',
             'dedupe_strategy' => DedupeStrategy::class,
             'dedupe_columns' => 'array',
