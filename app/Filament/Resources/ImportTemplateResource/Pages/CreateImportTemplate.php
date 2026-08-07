@@ -12,6 +12,7 @@ use Filament\Resources\Pages\CreateRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Components\Wizard\Step;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Storage;
 use SplFileObject;
@@ -100,18 +101,30 @@ class CreateImportTemplate extends CreateRecord
     /**
      * FileUpload's raw form state is always array-keyed internally, even for
      * a single, non-multiple file — Get/Set read that raw state directly
-     * (they don't apply the component's own scalar-casting), so the stored
-     * path has to be pulled out of the array here.
+     * (they don't apply the component's own scalar-casting), so the file
+     * has to be pulled out of the array here.
+     *
+     * Mid-wizard (before the field has dehydrated to a permanently-stored
+     * path on submit), that raw value is a
+     * Livewire\Features\SupportFileUploads\TemporaryUploadedFile instance,
+     * not a plain string — casting it to a string directly resolves to a
+     * throwaway tmpfile() path Livewire uses internally to satisfy
+     * Symfony's UploadedFile constructor, not the real livewire-tmp
+     * location, so ->getRealPath() must be called explicitly instead.
      */
     private function applySuggestionsFromSample(mixed $rawSampleFile, Set $set): void
     {
-        $storedPath = Arr::first(Arr::wrap($rawSampleFile));
+        $uploadedFile = Arr::first(Arr::wrap($rawSampleFile));
 
-        if (blank($storedPath)) {
+        if (blank($uploadedFile)) {
             return;
         }
 
-        $file = new SplFileObject(Storage::disk('local')->path($storedPath), 'r');
+        $path = $uploadedFile instanceof UploadedFile
+            ? $uploadedFile->getRealPath()
+            : Storage::disk('local')->path($uploadedFile);
+
+        $file = new SplFileObject($path, 'r');
         $file->setCsvControl(',', '"', '\\');
         $file->setFlags(SplFileObject::READ_CSV | SplFileObject::SKIP_EMPTY | SplFileObject::DROP_NEW_LINE);
 
