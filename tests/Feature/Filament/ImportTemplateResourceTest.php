@@ -8,6 +8,7 @@ use App\Filament\Resources\ImportTemplateResource\Pages\ListImportTemplates;
 use App\Models\ImportTemplate;
 use App\Models\User;
 use Filament\Actions\Testing\TestAction;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
@@ -161,6 +162,42 @@ it('prefills column mapping and idempotency key from an uploaded sample CSV', fu
     // hidden fields dehydrate to null — matches how ExternalId templates
     // are created elsewhere (e.g. ImportTransactionsTest's invalid template).
     expect($template->dedupe_columns)->toBeNull();
+});
+
+it('prefills from a real uploaded file, not just an already-stored path', function () {
+    // The test above drives the wizard by injecting an already-stored path
+    // string directly via fillForm(['sample_file' => [$storedPath]]) — that
+    // never exercises Livewire's real upload pipeline. This test uses a
+    // genuine UploadedFile::fake() through ->set(), so the field's raw
+    // mid-wizard state is what production actually sees: an array
+    // containing a Livewire\Features\SupportFileUploads\TemporaryUploadedFile
+    // instance, not a plain string.
+    $user = User::factory()->create();
+    actingAs($user);
+
+    $csv = UploadedFile::fake()->createWithContent('sample.csv', <<<'CSV'
+        Date,Description,Amount
+        2026-01-01,Coffee,-5.00
+        CSV);
+
+    Livewire::test(CreateImportTemplate::class)
+        ->set('data.sample_file', [$csv])
+        ->call('callSchemaComponentMethod', 'form.data::wizard', 'nextStep', ['currentStepIndex' => 0])
+        ->fillForm([
+            'name' => 'Real upload bank',
+            'date_format' => 'Y-m-d',
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $template = ImportTemplate::where('name', 'Real upload bank')->firstOrFail();
+
+    expect($template->header_signature)->toBe(['Date', 'Description', 'Amount']);
+    expect($template->column_mapping)->toBe([
+        'date' => 'Date',
+        'description' => 'Description',
+        'amount' => 'Amount',
+    ]);
 });
 
 it('persists an anonymized 5-row snapshot of the uploaded sample CSV', function () {
