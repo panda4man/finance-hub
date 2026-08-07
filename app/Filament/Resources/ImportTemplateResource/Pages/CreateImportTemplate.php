@@ -3,8 +3,11 @@
 namespace App\Filament\Resources\ImportTemplateResource\Pages;
 
 use App\Filament\Resources\ImportTemplateResource;
+use App\Models\ImportTemplate;
+use App\Support\Import\CsvSampleAnonymizer;
 use App\Support\Import\CsvTemplateSuggester;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Hidden;
 use Filament\Resources\Pages\CreateRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
@@ -27,6 +30,46 @@ class CreateImportTemplate extends CreateRecord
 
     protected static string $resource = ImportTemplateResource::class;
 
+    public function mount(): void
+    {
+        parent::mount();
+
+        $this->fillFromCloneSource(request()->query('clone_from'));
+    }
+
+    /**
+     * Prefills the wizard from an existing template (the "Clone" row action
+     * on the list page links here with ?clone_from=<id>) so updating just
+     * the candidate CSV — or a handful of fields — on an existing template
+     * doesn't require rebuilding one from scratch. The Sample CSV step is
+     * deliberately left blank: uploading a fresh file there re-runs
+     * suggestion/snapshot analysis as normal, and skipping it just keeps
+     * these cloned values with no snapshot until a file is uploaded later.
+     */
+    public function fillFromCloneSource(?string $importTemplateId): void
+    {
+        if ($importTemplateId === null) {
+            return;
+        }
+
+        $source = ImportTemplate::query()->find($importTemplateId);
+
+        if ($source === null) {
+            return;
+        }
+
+        $this->form->fill([
+            'name' => "{$source->name} (copy)",
+            'institution_id' => $source->institution_id,
+            'date_format' => $source->date_format,
+            'flip_amount_sign' => $source->flip_amount_sign,
+            'column_mapping' => $source->column_mapping,
+            'header_signature' => $source->header_signature,
+            'dedupe_strategy' => $source->dedupe_strategy->value,
+            'dedupe_columns' => $source->dedupe_columns,
+        ]);
+    }
+
     protected function getSteps(): array
     {
         return [
@@ -40,6 +83,7 @@ class CreateImportTemplate extends CreateRecord
                         ->preserveFilenames()
                         ->acceptedFileTypes(['text/csv', 'text/plain', 'application/vnd.ms-excel'])
                         ->helperText('Upload an example export from your bank to prefill the column mapping and idempotency key below. You can skip this and fill everything in manually.'),
+                    Hidden::make('sample_snapshot'),
                 ])
                 ->afterValidation(function (Get $get, Set $set): void {
                     $this->applySuggestionsFromSample($get('sample_file'), $set);
@@ -97,6 +141,9 @@ class CreateImportTemplate extends CreateRecord
         $set('column_mapping', $suggestion['column_mapping']);
         $set('dedupe_strategy', $suggestion['dedupe_strategy']->value);
         $set('dedupe_columns', $suggestion['dedupe_columns']);
+
+        $snapshot = app(CsvSampleAnonymizer::class)->anonymize($normalizedHeader, $sampleRows, $suggestion['column_mapping']);
+        $set('sample_snapshot', $snapshot);
     }
 
     protected function mutateFormDataBeforeCreate(array $data): array

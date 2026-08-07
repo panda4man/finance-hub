@@ -11,6 +11,7 @@ use App\Models\ImportTemplate;
 use App\Support\Import\DedupeKeyValidator;
 use BackedEnum;
 use Closure;
+use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -22,8 +23,10 @@ use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\StateCasts\KeyValueStateCast;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\IconColumn;
@@ -45,6 +48,7 @@ class ImportTemplateResource extends Resource
             ...self::detailsFields(),
             ...self::columnMappingFields(),
             ...self::idempotencyFields(),
+            ...self::sampleSnapshotFields(),
         ]);
     }
 
@@ -93,10 +97,7 @@ class ImportTemplateResource extends Resource
                         $columnMapping = app(KeyValueStateCast::class)->get($value ?? []);
                         $missing = DedupeKeyValidator::missingCoreRoles($columnMapping);
 
-                        $rawStrategy = $get('dedupe_strategy');
-                        $strategy = $rawStrategy instanceof DedupeStrategy
-                            ? $rawStrategy
-                            : DedupeStrategy::tryFrom((string) $rawStrategy);
+                        $strategy = self::dedupeStrategyFrom($get('dedupe_strategy'));
 
                         if ($strategy !== null) {
                             $missing = [
@@ -120,6 +121,20 @@ class ImportTemplateResource extends Resource
                 ->helperText('The exact column headers, in order, used to auto-detect this template from an uploaded file.')
                 ->required(),
         ];
+    }
+
+    /**
+     * Get('dedupe_strategy') returns a raw string on the field's first fill
+     * but a DedupeStrategy instance once Filament's Select (bound to an enum
+     * via options()) has round-tripped the value through its own state cast
+     * — normalize both shapes here so callers can compare directly against
+     * the enum.
+     */
+    private static function dedupeStrategyFrom(mixed $rawStrategy): ?DedupeStrategy
+    {
+        return $rawStrategy instanceof DedupeStrategy
+            ? $rawStrategy
+            : DedupeStrategy::tryFrom((string) $rawStrategy);
     }
 
     /**
@@ -149,8 +164,23 @@ class ImportTemplateResource extends Resource
                     ImportColumnRole::Description->value,
                 ])
                 ->helperText('⚠️ Default (date, amount, description) matches how every existing template behaves. Changing this changes what counts as "the same transaction" — on a template that already has imports, it can cause already-imported rows to duplicate or stop being recognized as updates. Only override if you know what you\'re doing.')
-                ->visible(fn (Get $get): bool => $get('dedupe_strategy') === DedupeStrategy::Composite->value)
-                ->required(fn (Get $get): bool => $get('dedupe_strategy') === DedupeStrategy::Composite->value),
+                ->visible(fn (Get $get): bool => self::dedupeStrategyFrom($get('dedupe_strategy')) === DedupeStrategy::Composite)
+                ->required(fn (Get $get): bool => self::dedupeStrategyFrom($get('dedupe_strategy')) === DedupeStrategy::Composite),
+        ];
+    }
+
+    /**
+     * @return list<\Filament\Schemas\Components\Component>
+     */
+    public static function sampleSnapshotFields(): array
+    {
+        return [
+            Section::make('Candidate CSV sample')
+                ->description('A small, anonymized snapshot captured from the sample CSV uploaded when this template was created — kept as a reference for the header row and column mapping above.')
+                ->schema([
+                    View::make('filament.import-templates.sample-snapshot-preview'),
+                ])
+                ->visible(fn (?ImportTemplate $record): bool => filled($record?->sample_snapshot)),
         ];
     }
 
@@ -169,6 +199,10 @@ class ImportTemplateResource extends Resource
                     ->dateTime(),
             ])
             ->recordActions([
+                Action::make('clone')
+                    ->label('Clone')
+                    ->icon(Heroicon::OutlinedDocumentDuplicate)
+                    ->url(fn (ImportTemplate $record): string => static::getUrl('create', ['clone_from' => $record->getKey()])),
                 EditAction::make(),
                 DeleteAction::make(),
             ])
