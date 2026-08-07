@@ -207,6 +207,76 @@ it('marks the connection login_required on a 200 response carrying a con.auth er
     expect($connection->status)->toBe(ConnectionStatus::LoginRequired);
 });
 
+it('keeps syncing the other institutions when only one bank under a multi-bank connection needs re-auth', function () {
+    $connection = makeConnection();
+
+    $body = [
+        'errlist' => [
+            ['code' => 'con.auth.expired', 'msg' => 're-auth needed', 'conn_id' => 'conn-broken'],
+        ],
+        'connections' => [
+            ['conn_id' => 'conn-broken', 'org_id' => 'org-broken', 'name' => 'Broken Bank'],
+            ['conn_id' => 'conn-good', 'org_id' => 'org-good', 'name' => 'Good Bank'],
+        ],
+        'accounts' => [
+            [
+                'id' => 'acc-broken',
+                'name' => 'Checking',
+                'conn_id' => 'conn-broken',
+                'currency' => 'USD',
+                'balance' => '100.00',
+                'transactions' => [],
+            ],
+            [
+                'id' => 'acc-good',
+                'name' => 'Savings',
+                'conn_id' => 'conn-good',
+                'currency' => 'USD',
+                'balance' => '200.00',
+                'transactions' => [txnPayload('txn-good')],
+            ],
+        ],
+    ];
+
+    Http::fake(['*/accounts*' => Http::response($body, 200)]);
+
+    $result = app(SyncService::class)->syncConnection($connection->id, SyncTrigger::Manual);
+
+    expect($result['status'])->toBe('success');
+    expect($result['added'])->toBe(1);
+    expect(Transaction::where('external_transaction_id', 'txn-good')->exists())->toBeTrue();
+
+    $connection->refresh();
+    expect($connection->status)->toBe(ConnectionStatus::Active);
+    expect($connection->status_detail)->toContain('Broken Bank');
+    expect($connection->last_successful_sync_at)->not->toBeNull();
+
+    $run = $connection->syncRuns()->latest('started_at')->first();
+    expect($run->status)->toBe(SyncStatus::Success);
+});
+
+it('degrades a connection to login_required without throwing when every account is excluded by scoped auth errors', function () {
+    $connection = makeConnection();
+
+    $body = accountSetPayload([]);
+    $body['errlist'] = [['code' => 'con.auth.expired', 'msg' => 're-auth needed', 'conn_id' => 'conn-1']];
+
+    Http::fake(['*/accounts*' => Http::response($body, 200)]);
+
+    $result = app(SyncService::class)->syncConnection($connection->id, SyncTrigger::Manual);
+
+    expect($result['status'])->toBe('failed');
+    Http::assertSentCount(1);
+
+    $connection->refresh();
+    expect($connection->status)->toBe(ConnectionStatus::LoginRequired);
+    expect($connection->status_detail)->toContain('Test Bank');
+    expect($connection->last_successful_sync_at)->toBeNull();
+
+    $run = $connection->syncRuns()->latest('started_at')->first();
+    expect($run->status)->toBe(SyncStatus::Failed);
+});
+
 describe('backfillConnection', function () {
     it('stops after the configured number of consecutive empty windows', function () {
         $connection = makeConnection();

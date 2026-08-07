@@ -140,20 +140,6 @@ final class SimplefinClient
             $json['errlist'] ?? []
         );
 
-        // gen.auth*/con.auth* errlist codes mean the credential itself needs
-        // re-authing — that's a hard failure the caller (SyncService) must act
-        // on, not a soft, non-fatal error to carry alongside otherwise-good
-        // data in ProviderSyncPage->errors.
-        $errlistCodes = $this->extractErrlistCodes($json);
-        $authErrorCodes = array_values(array_filter(
-            $errlistCodes,
-            static fn (string $code) => str_starts_with($code, 'gen.auth') || str_starts_with($code, 'con.auth'),
-        ));
-
-        if ($authErrorCodes !== []) {
-            throw SimplefinException::authError($authErrorCodes);
-        }
-
         // Institution/org data comes from a top-level `connections[]` array
         // (SimpleFin v2.0.0's "Connection" object replaced the older
         // "Organization" object), keyed by `conn_id` — NOT from an `org` key
@@ -165,6 +151,48 @@ final class SimplefinClient
             }
         }
 
+        // gen.auth*/con.auth* errlist codes mean a credential needs
+        // re-authing. An access URL can bundle several institutions
+        // (multiple conn_ids), and one bank going stale must not sink sync
+        // for the others under the same credential. An errlist entry that
+        // names a conn_id is SCOPED to that one institution — its accounts
+        // are excluded below, everything else still syncs. An entry with no
+        // conn_id means the credential itself (not one institution under it)
+        // is broken, which is unrecoverable for the whole page — that's a
+        // hard failure the caller (SyncService) must act on immediately.
+        $globalAuthErrorCodes = [];
+        $brokenConnIds = [];
+        $authErrors = [];
+        foreach (($json['errlist'] ?? []) as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+
+            $code = $entry['code'] ?? null;
+            if (! is_string($code) || (! str_starts_with($code, 'gen.auth') && ! str_starts_with($code, 'con.auth'))) {
+                continue;
+            }
+
+            $connId = $entry['conn_id'] ?? null;
+            if (! is_string($connId) || $connId === '') {
+                $globalAuthErrorCodes[] = $code;
+
+                continue;
+            }
+
+            $brokenConnIds[$connId] = true;
+            $authErrors[] = [
+                'connId' => $connId,
+                'institutionName' => $connectionsByConnId[$connId]['name'] ?? null,
+                'code' => $code,
+                'msg' => (string) ($entry['msg'] ?? ''),
+            ];
+        }
+
+        if ($globalAuthErrorCodes !== []) {
+            throw SimplefinException::authError($globalAuthErrorCodes);
+        }
+
         $accounts = [];
         foreach (($json['accounts'] ?? []) as $account) {
             if (! is_array($account)) {
@@ -172,6 +200,11 @@ final class SimplefinClient
             }
 
             $connId = $account['conn_id'] ?? null;
+
+            if ($connId !== null && isset($brokenConnIds[$connId])) {
+                continue;
+            }
+
             $conn = $connId !== null ? ($connectionsByConnId[$connId] ?? null) : null;
 
             $institution = new ProviderInstitution(
@@ -198,7 +231,7 @@ final class SimplefinClient
             );
         }
 
-        return new ProviderSyncPage(errors: $errors, accounts: $accounts);
+        return new ProviderSyncPage(errors: $errors, accounts: $accounts, authErrors: $authErrors);
     }
 
     /**

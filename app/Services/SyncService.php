@@ -83,28 +83,46 @@ final class SyncService
         try {
             $page = $this->fetchWithRetry($credential, $startDate?->getTimestamp());
 
-            DB::transaction(function () use ($connectionId, $page, &$counters, $connection, $run): void {
+            // A scoped con.auth error (one institution under a multi-bank
+            // credential) already excludes that institution's accounts from
+            // $page->accounts in SimplefinClient — the other institutions'
+            // fresh data is still good and must not be discarded. Only
+            // degrade the connection itself to login_required when every
+            // account came back excluded, i.e. nothing usable was fetched.
+            $authErrorSummary = $page->authErrors !== [] ? $this->summarizeAuthErrors($page->authErrors) : null;
+            $allAccountsBroken = $authErrorSummary !== null && $page->accounts === [];
+
+            DB::transaction(function () use ($connectionId, $page, &$counters, $connection, $run, $authErrorSummary, $allAccountsBroken): void {
                 $applied = $this->applyPage($connectionId, $page);
                 $counters['accountsUpserted'] = $applied['accountsUpserted'];
                 $counters['added'] = $applied['added'];
                 $counters['modified'] = $applied['modified'];
 
-                $connection->update([
-                    'last_successful_sync_at' => now(),
-                    'status' => ConnectionStatus::Active,
-                    'status_detail' => null,
-                ]);
+                $connection->update($allAccountsBroken
+                    ? ['status' => ConnectionStatus::LoginRequired, 'status_detail' => $authErrorSummary]
+                    : ['last_successful_sync_at' => now(), 'status' => ConnectionStatus::Active, 'status_detail' => $authErrorSummary]);
 
                 $run->update([
-                    'status' => SyncStatus::Success,
+                    'status' => $allAccountsBroken ? SyncStatus::Failed : SyncStatus::Success,
                     'finished_at' => now(),
                     'pages_fetched' => $counters['pagesFetched'],
                     'added_count' => $counters['added'],
                     'modified_count' => $counters['modified'],
                     'removed_count' => $counters['removed'],
                     'accounts_upserted' => $counters['accountsUpserted'],
+                    'error_message' => $allAccountsBroken ? $authErrorSummary : null,
                 ]);
             });
+
+            if ($allAccountsBroken) {
+                Log::warning("Sync degraded connection {$connectionId} (run {$run->id}) to login_required: {$authErrorSummary}");
+
+                return ['connectionId' => $connectionId, 'status' => 'failed', 'error' => $authErrorSummary];
+            }
+
+            if ($authErrorSummary !== null) {
+                Log::warning("Sync for connection {$connectionId} (run {$run->id}) partially degraded: {$authErrorSummary}");
+            }
 
             Log::info(
                 "Sync succeeded for connection {$connectionId} (run {$run->id}): ".
@@ -326,6 +344,19 @@ final class SyncService
         }
 
         return false;
+    }
+
+    /**
+     * @param  list<array{connId: ?string, institutionName: ?string, code: string, msg: string}>  $authErrors
+     */
+    private function summarizeAuthErrors(array $authErrors): string
+    {
+        $names = array_map(
+            static fn (array $e) => $e['institutionName'] ?? $e['connId'] ?? 'unknown institution',
+            $authErrors
+        );
+
+        return count($names).' institution(s) need re-auth: '.implode(', ', $names);
     }
 
     private function isTransient(\Throwable $e): bool

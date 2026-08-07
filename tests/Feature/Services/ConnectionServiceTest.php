@@ -128,6 +128,24 @@ it('creates a genuinely new connection when the second claim has no overlapping 
     expect(Account::count())->toBe(2);
 });
 
+it('throws instead of creating an empty connection when the only institution comes back scoped-auth-broken', function () {
+    $claimUrl = 'https://bridge.example.com/simplefin/claim/tok-broken';
+    $setupToken = base64_encode($claimUrl);
+    $accessUrl = 'https://user1:pass1@bridge.example.com/simplefin';
+
+    $accountSet = sampleAccountSet('acc-1', 'conn-1');
+    $accountSet['errlist'] = [['code' => 'con.auth.expired', 'msg' => 're-auth needed', 'conn_id' => 'conn-1']];
+
+    fakeSimplefinFlow($claimUrl, $accessUrl, $accountSet);
+
+    $service = app(ConnectionService::class);
+
+    expect(fn () => $service->createOrRefreshFromSetupToken($setupToken))
+        ->toThrow(\App\Exceptions\SimplefinException::class);
+
+    expect(Connection::count())->toBe(0);
+});
+
 it('falls back to matching institutions by (provider, name) when external_org_id is null', function () {
     $claimUrl = 'https://bridge.example.com/simplefin/claim/tok-noorg';
     $setupToken = base64_encode($claimUrl);

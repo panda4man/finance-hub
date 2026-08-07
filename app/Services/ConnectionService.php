@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Enums\ConnectionStatus;
+use App\Exceptions\SimplefinException;
 use App\Models\Account;
 use App\Models\Connection;
 use App\Models\Institution;
@@ -42,6 +43,10 @@ final class ConnectionService
     {
         $accessUrl = $this->client->claimSetupToken($setupToken);
         $page = $this->client->fetchAccountSet($accessUrl);
+
+        if ($page->accounts === [] && $page->authErrors !== []) {
+            throw SimplefinException::authError(array_column($page->authErrors, 'code'));
+        }
 
         return DB::transaction(function () use ($accessUrl, $page) {
             $extIds = collect($page->accounts)->map(fn (ProviderAccount $a) => $a->externalAccountId)->all();
