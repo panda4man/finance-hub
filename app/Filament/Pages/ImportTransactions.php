@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\ImportColumnRole;
 use App\Enums\ImportStatus;
 use App\Filament\Resources\ImportTemplateResource;
 use App\Models\Account;
@@ -33,6 +34,7 @@ use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\HtmlString;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use SplFileObject;
 use UnitEnum;
@@ -51,6 +53,9 @@ class ImportTransactions extends Page implements HasForms
 
     /** @var array<string, mixed>|null */
     public ?array $data = [];
+
+    /** @var array{row_count: ?int, mapping: array<string, string>}|null */
+    private ?array $cachedFilePreview = null;
 
     public function mount(): void
     {
@@ -141,6 +146,12 @@ class ImportTransactions extends Page implements HasForms
                             Placeholder::make('resolved_template')
                                 ->label('Import template')
                                 ->content(fn (Get $get): string => ImportTemplate::find($get('detected_template_id') ?? $get('template_id'))?->name ?? '—'),
+                            Placeholder::make('row_count')
+                                ->label('Rows in file')
+                                ->content(fn (Get $get): string => (string) ($this->filePreview($get)['row_count'] ?? '—')),
+                            Placeholder::make('column_mapping')
+                                ->label('Column mapping')
+                                ->content(fn (Get $get): HtmlString => $this->columnMappingContent($this->filePreview($get)['mapping'])),
                         ]),
                 ])
                     ->submitAction($this->getImportAction())
@@ -180,15 +191,11 @@ class ImportTransactions extends Page implements HasForms
      */
     private function detectTemplateId(mixed $rawFile): ?string
     {
-        $uploadedFile = Arr::first(Arr::wrap($rawFile));
+        $absolutePath = $this->resolveUploadedFilePath($rawFile);
 
-        if (blank($uploadedFile)) {
+        if ($absolutePath === null) {
             return null;
         }
-
-        $absolutePath = $uploadedFile instanceof TemporaryUploadedFile
-            ? $uploadedFile->getRealPath()
-            : Storage::disk('local')->path($uploadedFile);
 
         $file = new SplFileObject($absolutePath, 'r');
         $file->setCsvControl(',', '"', '\\');
@@ -199,6 +206,92 @@ class ImportTransactions extends Page implements HasForms
         }
 
         return app(ImportTemplateMatcher::class)->detectTemplate($header)?->id;
+    }
+
+    private function resolveUploadedFilePath(mixed $rawFile): ?string
+    {
+        $uploadedFile = Arr::first(Arr::wrap($rawFile));
+
+        if (blank($uploadedFile)) {
+            return null;
+        }
+
+        return $uploadedFile instanceof TemporaryUploadedFile
+            ? $uploadedFile->getRealPath()
+            : Storage::disk('local')->path($uploadedFile);
+    }
+
+    /**
+     * @return array{row_count: ?int, mapping: array<string, string>}
+     */
+    private function filePreview(Get $get): array
+    {
+        if ($this->cachedFilePreview !== null) {
+            return $this->cachedFilePreview;
+        }
+
+        $absolutePath = $this->resolveUploadedFilePath($get('file'));
+
+        $rowCount = null;
+
+        if ($absolutePath !== null) {
+            $file = new SplFileObject($absolutePath, 'r');
+            $file->setCsvControl(',', '"', '\\');
+            $file->setFlags(SplFileObject::READ_CSV | SplFileObject::SKIP_EMPTY | SplFileObject::DROP_NEW_LINE);
+
+            $rowCount = -1; // exclude header row
+            foreach ($file as $row) {
+                if ($row === [null] || $row === false) {
+                    continue;
+                }
+
+                $rowCount++;
+            }
+
+            $rowCount = max($rowCount, 0);
+        }
+
+        $templateId = $get('detected_template_id') ?? $get('template_id');
+        $mapping = [];
+
+        if ($templateId !== null) {
+            $columnMapping = ImportTemplate::find($templateId)?->column_mapping ?? [];
+
+            foreach ($columnMapping as $role => $header) {
+                $mapping[$this->roleLabel($role)] = $header;
+            }
+        }
+
+        return $this->cachedFilePreview = ['row_count' => $rowCount, 'mapping' => $mapping];
+    }
+
+    private function roleLabel(string $role): string
+    {
+        return match ($role) {
+            ImportColumnRole::Date->value => 'Date',
+            ImportColumnRole::Description->value => 'Description',
+            ImportColumnRole::Amount->value => 'Amount',
+            ImportColumnRole::Type->value => 'Type',
+            ImportColumnRole::Balance->value => 'Balance',
+            ImportColumnRole::ExternalId->value => 'External ID',
+            default => ucfirst(str_replace('_', ' ', $role)),
+        };
+    }
+
+    /**
+     * @param  array<string, string>  $mapping
+     */
+    private function columnMappingContent(array $mapping): HtmlString
+    {
+        if ($mapping === []) {
+            return new HtmlString('—');
+        }
+
+        $items = collect($mapping)
+            ->map(fn (string $header, string $label): string => '<li>'.e($label).' → '.e($header).'</li>')
+            ->implode('');
+
+        return new HtmlString('<ul class="list-disc list-inside text-sm">'.$items.'</ul>');
     }
 
     public function import(): void

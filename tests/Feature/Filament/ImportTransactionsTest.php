@@ -86,6 +86,29 @@ it('detects a template from a real wizard upload without a 500', function () {
         ->assertSet('data.detected_template_id', chaseTemplateIdForImportPage());
 });
 
+it('shows row count and column mapping on the confirm step', function () {
+    $user = User::factory()->create();
+    actingAs($user);
+
+    Storage::fake('local');
+
+    $storedPath = 'csv-imports/chase.csv';
+    Storage::disk('local')->put($storedPath, <<<'CSV'
+        Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #
+        DEBIT,07/22/2026,COFFEE,-10.50,Purchase,1000.00,
+        DEBIT,07/21/2026,LUNCH,-5.00,Purchase,1010.00,
+        CSV);
+
+    Livewire::test(ImportTransactions::class)
+        ->fillForm(['file' => [$storedPath]])
+        ->call('callSchemaComponentMethod', 'form.data::wizard', 'nextStep', ['currentStepIndex' => 1])
+        ->assertSet('data.detected_template_id', chaseTemplateIdForImportPage())
+        ->call('callSchemaComponentMethod', 'form.data::wizard', 'nextStep', ['currentStepIndex' => 2])
+        ->assertSee('2')
+        ->assertSee('Posting Date')
+        ->assertSee('Amount');
+});
+
 it('ImportService can create a new manual account', function () {
     $user = User::factory()->create();
 
