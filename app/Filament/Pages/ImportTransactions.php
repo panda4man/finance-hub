@@ -34,7 +34,7 @@ use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\HtmlString;
+use Illuminate\View\View;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use SplFileObject;
 use UnitEnum;
@@ -151,7 +151,9 @@ class ImportTransactions extends Page implements HasForms
                                 ->content(fn (Get $get): string => (string) ($this->filePreview($get)['row_count'] ?? '—')),
                             Placeholder::make('column_mapping')
                                 ->label('Column mapping')
-                                ->content(fn (Get $get): HtmlString => $this->columnMappingContent($this->filePreview($get)['mapping'])),
+                                ->content(fn (Get $get): View => view('filament.import-transactions.column-mapping-preview', [
+                                    'mapping' => $this->filePreview($get)['mapping'],
+                                ])),
                         ]),
                 ])
                     ->submitAction($this->getImportAction())
@@ -276,22 +278,6 @@ class ImportTransactions extends Page implements HasForms
             ImportColumnRole::ExternalId->value => 'External ID',
             default => ucfirst(str_replace('_', ' ', $role)),
         };
-    }
-
-    /**
-     * @param  array<string, string>  $mapping
-     */
-    private function columnMappingContent(array $mapping): HtmlString
-    {
-        if ($mapping === []) {
-            return new HtmlString('—');
-        }
-
-        $items = collect($mapping)
-            ->map(fn (string $header, string $label): string => '<li>'.e($label).' → '.e($header).'</li>')
-            ->implode('');
-
-        return new HtmlString('<ul class="list-disc list-inside text-sm">'.$items.'</ul>');
     }
 
     public function import(): void
