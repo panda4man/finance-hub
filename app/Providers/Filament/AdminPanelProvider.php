@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Widgets\NetCashOverview;
 use App\Filament\Widgets\SyncStatusOverview;
 use App\Models\User;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
@@ -55,6 +56,7 @@ class AdminPanelProvider extends PanelProvider
             ->widgets([
                 AccountWidget::class,
                 FilamentInfoWidget::class,
+                NetCashOverview::class,
                 SyncStatusOverview::class,
             ])
             ->middleware([

@@ -2,6 +2,7 @@
 
 use App\Filament\Pages\ImportTransactions;
 use App\Filament\Resources\ImportTemplateResource;
+use App\Filament\Widgets\NetCashOverview;
 use App\Models\ImportTemplate;
 use App\Models\Transaction;
 use App\Models\User;
@@ -27,6 +28,10 @@ it('mounts the import template list page via livewire without error', function (
 
 it('mounts the import template create page via livewire without error', function () {
     Livewire::test(ImportTemplateResource\Pages\CreateImportTemplate::class)->assertSuccessful();
+});
+
+it('mounts the net cash overview widget via livewire without error', function () {
+    Livewire::test(NetCashOverview::class)->assertSuccessful();
 });
 
 it('completes the golden path: new account + auto-detected Chase template + import', function () {

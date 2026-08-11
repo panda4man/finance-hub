@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\AccountType;
 use App\Enums\DedupeStrategy;
 use App\Enums\ImportStatus;
 use App\Filament\Pages\ImportTransactions;
@@ -117,7 +118,7 @@ it('ImportService can create a new manual account', function () {
 
     expect($account->name)->toBe('My Checking');
     expect($account->mask)->toBe('1234');
-    expect($account->type)->toBe('checking');
+    expect($account->account_type)->toBe(AccountType::Checking);
 });
 
 it('ImportService can import to an existing manual account', function () {
@@ -350,10 +351,10 @@ it('ImportService can create account with optional fields', function () {
     $account2 = $service->createManualAccount($user->id, 'Savings', null, null);
 
     expect($account1->mask)->toBe('1234');
-    expect($account1->type)->toBe('checking');
+    expect($account1->account_type)->toBe(AccountType::Checking);
 
     expect($account2->mask)->toBeNull();
-    expect($account2->type)->toBeNull();
+    expect($account2->account_type)->toBeNull();
 });
 
 it('ImportService can create account with an institution', function () {

@@ -38,7 +38,7 @@ final class ImportService
         );
     }
 
-    public function createManualAccount(string $userId, string $name, ?string $mask, ?string $type, ?string $institutionId = null): Account
+    public function createManualAccount(string $userId, string $name, ?string $mask, ?string $accountType, ?string $institutionId = null): Account
     {
         $connection = $this->ensureManualConnection($userId);
 
@@ -50,7 +50,7 @@ final class ImportService
             'external_account_id' => 'manual:'.Str::uuid(),
             'name' => $name,
             'mask' => $mask,
-            'type' => $type,
+            'account_type' => $accountType,
         ]);
     }
 

@@ -34,3 +34,25 @@ it('returns correct label for CreditCard account type', function () {
 it('returns correct label for Other account type', function () {
     expect(AccountType::Other->label())->toBe('Other');
 });
+
+it('returns +1 net cash sign for Checking account type', function () {
+    expect(AccountType::Checking->netCashSign())->toBe(1);
+});
+
+it('returns +1 net cash sign for Savings account type', function () {
+    expect(AccountType::Savings->netCashSign())->toBe(1);
+});
+
+it('returns -1 net cash sign for CreditCard account type', function () {
+    expect(AccountType::CreditCard->netCashSign())->toBe(-1);
+});
+
+it('returns 0 net cash sign for Other account type', function () {
+    expect(AccountType::Other->netCashSign())->toBe(0);
+});
+
+it('returns a defined net cash sign for every case, so a new case fails here first', function () {
+    foreach (AccountType::cases() as $case) {
+        expect($case->netCashSign())->toBeInt();
+    }
+});

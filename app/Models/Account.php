@@ -23,6 +23,7 @@ class Account extends Model
         'type',
         'subtype',
         'account_type',
+        'include_in_net_cash',
         'available_balance',
         'current_balance',
         'credit_limit',
@@ -37,6 +38,7 @@ class Account extends Model
     {
         return [
             'account_type' => AccountType::class,
+            'include_in_net_cash' => 'boolean',
             'available_balance' => 'decimal:2',
             'current_balance' => 'decimal:2',
             'credit_limit' => 'decimal:2',
