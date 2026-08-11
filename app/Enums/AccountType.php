@@ -30,4 +30,19 @@ enum AccountType: string
             self::Other => Heroicon::OutlinedArchiveBox,
         };
     }
+
+    /**
+     * Sign this type contributes to a net-cash total: +1 counts the balance as an
+     * asset, -1 as debt, 0 leaves it out. The sign is decided here rather than read
+     * from the balance so a provider that reports credit-card debt as a positive
+     * number can't flip the total.
+     */
+    public function netCashSign(): int
+    {
+        return match ($this) {
+            self::Checking, self::Savings => 1,
+            self::CreditCard => -1,
+            self::Other => 0,
+        };
+    }
 }

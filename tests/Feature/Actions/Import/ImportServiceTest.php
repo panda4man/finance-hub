@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\AccountType;
 use App\Enums\ConnectionStatus;
 use App\Enums\ImportStatus;
 use App\Models\Connection;
@@ -46,10 +47,20 @@ it('creates a manual account with synthesized external_account_id', function () 
 
     expect($account->name)->toBe('Test Checking');
     expect($account->mask)->toBe('4321');
-    expect($account->type)->toBe('checking');
+    expect($account->account_type)->toBe(AccountType::Checking);
     expect($account->external_account_id)->toMatch('/^manual:/');
     expect($account->connection->provider)->toBe('manual');
     expect($account->connection->user_id)->toBe($user->id);
+});
+
+it('writes the selected type into account_type and leaves the legacy type column null', function () {
+    $user = User::factory()->create();
+
+    $service = app(ImportService::class);
+    $account = $service->createManualAccount($user->id, 'Test Checking', '4321', 'checking');
+
+    expect($account->account_type)->toBe(AccountType::Checking);
+    expect($account->type)->toBeNull();
 });
 
 it('imports a valid CSV file and creates import run with success status', function () {

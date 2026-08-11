@@ -78,6 +78,10 @@ final class ConnectionService
      * Upserts institutions (looked up by provider + external_org_id) and
      * their accounts for a connection. Transactions are NOT touched here —
      * that's a later phase's SyncService/UpsertTransactionsAction concern.
+     *
+     * `account_type` and `include_in_net_cash` are deliberately absent from
+     * the update array below — both are user-editable classification, not
+     * provider truth, so a sync must never clobber the user's choices.
      */
     public function upsertAccountsAndInstitutions(string $connectionId, ProviderSyncPage $page): int
     {
