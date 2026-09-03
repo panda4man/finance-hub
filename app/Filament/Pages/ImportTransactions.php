@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\AccountType;
 use App\Enums\ImportColumnRole;
 use App\Enums\ImportStatus;
 use App\Filament\Resources\ImportTemplateResource;
@@ -98,12 +99,10 @@ class ImportTransactions extends Page implements HasForms
                                 ->visible(fn (Get $get): bool => (bool) $get('create_new_account')),
                             Select::make('new_account_type')
                                 ->label('Account type')
-                                ->options([
-                                    'checking' => 'Checking',
-                                    'savings' => 'Savings',
-                                    'credit_card' => 'Credit card',
-                                    'other' => 'Other',
-                                ])
+                                ->options(array_combine(
+                                    array_map(fn (AccountType $case): string => $case->value, AccountType::cases()),
+                                    array_map(fn (AccountType $case): string => $case->label(), AccountType::cases()),
+                                ))
                                 ->visible(fn (Get $get): bool => (bool) $get('create_new_account')),
                             Select::make('new_account_institution_id')
                                 ->label('Institution')

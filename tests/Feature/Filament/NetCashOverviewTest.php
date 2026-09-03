@@ -78,6 +78,45 @@ it('coerces a credit-card balance stored as a negative number into the same nega
         ->assertSee('-$150.00');
 });
 
+it('counts a loan account toward debts the same way a credit card is counted', function () {
+    $user = User::factory()->create();
+    $connection = makeNetCashConnection($user);
+
+    makeNetCashAccount($connection, ['name' => 'Checking', 'account_type' => AccountType::Checking, 'current_balance' => '1000.00']);
+    makeNetCashAccount($connection, ['name' => 'Mortgage', 'account_type' => AccountType::Loan, 'current_balance' => '250000.00']);
+
+    actingAs($user);
+
+    Livewire::test(NetCashOverview::class)
+        ->assertSee('-$249,000.00') // net: 1000 - 250000
+        ->assertSee('$1,000.00') // assets
+        ->assertSee('-$250,000.00'); // debts, rendered negative
+});
+
+it('coerces a loan balance stored as a positive number into a negative contribution', function () {
+    $user = User::factory()->create();
+    $connection = makeNetCashConnection($user);
+
+    makeNetCashAccount($connection, ['name' => 'Mortgage', 'account_type' => AccountType::Loan, 'current_balance' => '250000.00']);
+
+    actingAs($user);
+
+    Livewire::test(NetCashOverview::class)
+        ->assertSee('-$250,000.00');
+});
+
+it('describes the debts tile as credit/loan rather than credit alone', function () {
+    $user = User::factory()->create();
+    $connection = makeNetCashConnection($user);
+
+    makeNetCashAccount($connection, ['name' => 'Mortgage', 'account_type' => AccountType::Loan, 'current_balance' => '250000.00']);
+
+    actingAs($user);
+
+    Livewire::test(NetCashOverview::class)
+        ->assertSee('1 credit/loan');
+});
+
 it('excludes another user\'s accounts from every stat', function () {
     $user = User::factory()->create();
     $stranger = User::factory()->create();

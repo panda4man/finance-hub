@@ -52,7 +52,7 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
                 ->description("{$totals['assetCount']} checking/savings")
                 ->color('success'),
             Stat::make('Debts', $this->formatCents(-$totals['debtCents']))
-                ->description("{$totals['debtCount']} credit")
+                ->description("{$totals['debtCount']} credit/loan")
                 ->color('danger'),
         ];
     }

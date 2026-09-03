@@ -121,6 +121,42 @@ it('ImportService can create a new manual account', function () {
     expect($account->account_type)->toBe(AccountType::Checking);
 });
 
+it('ImportService can create a new manual account typed as a loan', function () {
+    $user = User::factory()->create();
+
+    $service = app(ImportService::class);
+    $account = $service->createManualAccount($user->id, 'My Mortgage', '5678', 'loan');
+
+    expect($account->account_type)->toBe(AccountType::Loan);
+});
+
+it('offers Loan as a selectable account type in the create-new-account wizard step', function () {
+    $user = User::factory()->create();
+    actingAs($user);
+
+    $csv = <<<'CSV'
+Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #
+DEBIT,07/22/2026,COFFEE,-10.50,Purchase,1000.00,
+CSV;
+    Storage::disk('local')->put('csv-imports/loan-account.csv', $csv);
+
+    $instance = new ImportTransactions;
+    $instance->mount();
+    $instance->form->fill([
+        'create_new_account' => true,
+        'new_account_name' => 'My Mortgage',
+        'new_account_type' => 'loan',
+        'file' => 'csv-imports/loan-account.csv',
+        'detected_template_id' => chaseTemplateIdForImportPage(),
+    ]);
+    $instance->import();
+
+    $account = Account::where('name', 'My Mortgage')->first();
+
+    expect($account)->not->toBeNull();
+    expect($account->account_type)->toBe(AccountType::Loan);
+});
+
 it('ImportService can import to an existing manual account', function () {
     $user = User::factory()->create();
 

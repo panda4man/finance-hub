@@ -9,6 +9,7 @@ enum AccountType: string
     case Checking = 'checking';
     case Savings = 'savings';
     case CreditCard = 'credit_card';
+    case Loan = 'loan';
     case Other = 'other';
 
     public function label(): string
@@ -17,6 +18,7 @@ enum AccountType: string
             self::Checking => 'Checking',
             self::Savings => 'Savings',
             self::CreditCard => 'Credit card',
+            self::Loan => 'Loan',
             self::Other => 'Other',
         };
     }
@@ -27,6 +29,7 @@ enum AccountType: string
             self::Checking => Heroicon::OutlinedBuildingLibrary,
             self::Savings => Heroicon::OutlinedWallet,
             self::CreditCard => Heroicon::OutlinedCreditCard,
+            self::Loan => Heroicon::OutlinedBanknotes,
             self::Other => Heroicon::OutlinedArchiveBox,
         };
     }
@@ -41,7 +44,7 @@ enum AccountType: string
     {
         return match ($this) {
             self::Checking, self::Savings => 1,
-            self::CreditCard => -1,
+            self::CreditCard, self::Loan => -1,
             self::Other => 0,
         };
     }
