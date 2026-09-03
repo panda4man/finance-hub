@@ -26,6 +26,11 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
 {
     use InteractsWithActions;
 
+    /**
+     * @var view-string
+     */
+    protected string $view = 'filament.widgets.net-cash-overview';
+
     protected static ?int $sort = -2; // above SyncStatusOverview (undeclared => -1)
 
     protected ?string $heading = 'Net cash';

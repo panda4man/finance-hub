@@ -385,6 +385,29 @@ it('renders the Configure modal without error for a user with no accounts', func
         ->assertHasNoErrors();
 });
 
+// mountAction()/callMountedAction() drive the action's server-side state
+// directly and don't prove the widget's page markup can ever display a
+// modal. Filament renders a mounted action's modal lazily via a
+// wire:partial="action-modals" placeholder (synced client-side, so its
+// contents never appear in a server-rendered HTML snapshot even when
+// everything works) — a widget view missing <x-filament-actions::modals />
+// has no such placeholder at all, so the Configure button opens nothing in
+// a real browser despite every mountAction-based test passing. Assert the
+// placeholder itself exists, since that's what actually distinguishes a
+// widget that can render the modal from one that can't.
+it('renders the action-modals placeholder so a mounted action has somewhere to display', function () {
+    $user = User::factory()->create();
+    $connection = makeNetCashConnection($user);
+
+    makeNetCashAccount($connection, ['name' => 'Checking', 'account_type' => AccountType::Checking, 'current_balance' => '1000.00']);
+
+    actingAs($user);
+
+    Livewire::test(NetCashOverview::class)
+        ->mountAction('configure')
+        ->assertSee('wire:partial="action-modals"', escape: false);
+});
+
 it('does not N+1 query per account when rendering display names', function () {
     $user = User::factory()->create();
     $connection = makeNetCashConnection($user);
