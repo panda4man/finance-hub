@@ -3,7 +3,7 @@ name: finance-hub-laravel
 services:
   postgres:
     image: postgres:16-alpine
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-finance}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-finance}
@@ -19,7 +19,7 @@ services:
   app:
     build: .
     container_name: finance-hub-laravel-app
-    restart: unless-stopped
+    restart: always
     env_file: [.env]
     environment:
       RUN_MIGRATIONS: "1"
@@ -35,7 +35,7 @@ services:
 
   queue:
     build: .
-    restart: unless-stopped
+    restart: always
     env_file: [.env]
     command: ["php","artisan","queue:work","--queue=finance-sync,default","--sleep=3","--tries=1"]
     depends_on:
@@ -44,7 +44,7 @@ services:
 
   scheduler:
     build: .
-    restart: unless-stopped
+    restart: always
     env_file: [.env]
     command: ["php","artisan","schedule:work"]
     depends_on:
