@@ -53,7 +53,7 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
                 ->descriptionIcon(Heroicon::OutlinedWallet)
                 ->color($totals['liquidNetCents'] >= 0 ? 'success' : 'danger'),
             Stat::make('Assets', $this->formatCents($totals['assetCents']))
-                ->description("{$totals['assetCount']} checking/savings")
+                ->description("{$totals['assetCount']} checking/savings, before debt")
                 ->color('success'),
             Stat::make('Debts', $this->formatCents(-$totals['debtCents']))
                 ->description("{$totals['debtCount']} credit/loan")
@@ -259,11 +259,20 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
      */
     private function liquidNetCashDescription(array $totals): string
     {
-        if ($totals['loanCents'] > 0) {
-            return 'Excludes '.$this->formatCents($totals['loanCents']).' loan debt';
+        // debtCents sums every debt type; the card portion is whatever isn't loan.
+        $cardDebtCents = $totals['debtCents'] - $totals['loanCents'];
+
+        $parts = [];
+
+        if ($cardDebtCents > 0) {
+            $parts[] = $this->formatCents($cardDebtCents).' card debt subtracted';
         }
 
-        return 'Assets minus card debt';
+        if ($totals['loanCents'] > 0) {
+            $parts[] = $this->formatCents($totals['loanCents']).' loan debt excluded';
+        }
+
+        return $parts === [] ? 'Same as assets, no card debt' : implode('; ', $parts);
     }
 
     private function formatCents(int $cents): string

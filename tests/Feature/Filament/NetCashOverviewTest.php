@@ -144,10 +144,10 @@ it('reports the excluded loan total in the liquid net cash description', functio
     actingAs($user);
 
     Livewire::test(NetCashOverview::class)
-        ->assertSee('Excludes $250,000.00 loan debt');
+        ->assertSee('$250,000.00 loan debt excluded');
 });
 
-it('describes liquid net cash without an exclusion when no loan accounts exist', function () {
+it('reports the subtracted card debt total in the liquid net cash description', function () {
     $user = User::factory()->create();
     $connection = makeNetCashConnection($user);
 
@@ -157,8 +157,20 @@ it('describes liquid net cash without an exclusion when no loan accounts exist',
     actingAs($user);
 
     Livewire::test(NetCashOverview::class)
-        ->assertSee('Assets minus card debt')
-        ->assertDontSee('Excludes');
+        ->assertSee('$200.00 card debt subtracted')
+        ->assertDontSee('loan debt excluded');
+});
+
+it('describes liquid net cash as same as assets when there is no debt at all', function () {
+    $user = User::factory()->create();
+    $connection = makeNetCashConnection($user);
+
+    makeNetCashAccount($connection, ['name' => 'Checking', 'account_type' => AccountType::Checking, 'current_balance' => '1000.00']);
+
+    actingAs($user);
+
+    Livewire::test(NetCashOverview::class)
+        ->assertSee('Same as assets, no card debt');
 });
 
 it('shows a negative liquid net cash when card debt exceeds cash on hand', function () {
