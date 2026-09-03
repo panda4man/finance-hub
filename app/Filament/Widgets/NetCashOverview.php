@@ -48,6 +48,10 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
                 ->description($this->netCashDescription($totals))
                 ->descriptionIcon($totals['unclassifiedCount'] > 0 ? Heroicon::OutlinedExclamationTriangle : Heroicon::OutlinedClock)
                 ->color($totals['netCents'] >= 0 ? 'success' : 'danger'),
+            Stat::make('Liquid net cash', $this->formatCents($totals['liquidNetCents']))
+                ->description($this->liquidNetCashDescription($totals))
+                ->descriptionIcon(Heroicon::OutlinedWallet)
+                ->color($totals['liquidNetCents'] >= 0 ? 'success' : 'danger'),
             Stat::make('Assets', $this->formatCents($totals['assetCents']))
                 ->description("{$totals['assetCount']} checking/savings")
                 ->color('success'),
@@ -162,12 +166,14 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
      * enum->sign mapping as a hard-coded IN (...) list, duplicating
      * AccountType::netCashSign() and losing exhaustiveness checking.
      *
-     * @return array{netCents: int, assetCents: int, debtCents: int, assetCount: int, debtCount: int, unclassifiedCount: int, asOf: ?Carbon}
+     * @return array{netCents: int, liquidNetCents: int, assetCents: int, debtCents: int, loanCents: int, assetCount: int, debtCount: int, unclassifiedCount: int, asOf: ?Carbon}
      */
     private function aggregateTotals(): array
     {
         $assetCents = 0;
         $debtCents = 0;
+        $liquidNetCents = 0;
+        $loanCents = 0;
         $assetCount = 0;
         $debtCount = 0;
         $unclassifiedCount = 0;
@@ -203,6 +209,16 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
                 $debtCount++;
             }
 
+            $liquidSign = $account->account_type->liquidNetCashSign();
+            $liquidNetCents += $liquidSign * $cents;
+
+            // Debt the liquid total deliberately excludes (Loan). Derived from the
+            // enum's two signs rather than naming Loan here, so classification
+            // stays in one place — see aggregateTotals()'s docblock.
+            if ($liquidSign === 0) {
+                $loanCents += $cents;
+            }
+
             if ($account->balances_updated_at !== null
                 && ($asOf === null || $account->balances_updated_at->gt($asOf))) {
                 $asOf = $account->balances_updated_at;
@@ -211,8 +227,10 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
 
         return [
             'netCents' => $assetCents - $debtCents,
+            'liquidNetCents' => $liquidNetCents,
             'assetCents' => $assetCents,
             'debtCents' => $debtCents,
+            'loanCents' => $loanCents,
             'assetCount' => $assetCount,
             'debtCount' => $debtCount,
             'unclassifiedCount' => $unclassifiedCount,
@@ -221,7 +239,7 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
     }
 
     /**
-     * @param  array{netCents: int, assetCents: int, debtCents: int, assetCount: int, debtCount: int, unclassifiedCount: int, asOf: ?Carbon}  $totals
+     * @param  array{netCents: int, liquidNetCents: int, assetCents: int, debtCents: int, loanCents: int, assetCount: int, debtCount: int, unclassifiedCount: int, asOf: ?Carbon}  $totals
      */
     private function netCashDescription(array $totals): string
     {
@@ -234,6 +252,18 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
         }
 
         return 'No balances synced yet';
+    }
+
+    /**
+     * @param  array{netCents: int, liquidNetCents: int, assetCents: int, debtCents: int, loanCents: int, assetCount: int, debtCount: int, unclassifiedCount: int, asOf: ?Carbon}  $totals
+     */
+    private function liquidNetCashDescription(array $totals): string
+    {
+        if ($totals['loanCents'] > 0) {
+            return 'Excludes '.$this->formatCents($totals['loanCents']).' loan debt';
+        }
+
+        return 'Assets minus card debt';
     }
 
     private function formatCents(int $cents): string

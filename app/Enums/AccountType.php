@@ -48,4 +48,20 @@ enum AccountType: string
             self::Other => 0,
         };
     }
+
+    /**
+     * Sign this type contributes to a liquid (short-term) net-cash total: identical
+     * to netCashSign() except Loan returns 0, so a mortgage can't bury how much
+     * spendable cash is on hand. Written as its own exhaustive match rather than a
+     * default arm over netCashSign(), so a future long-term-debt case has to be
+     * classified here deliberately.
+     */
+    public function liquidNetCashSign(): int
+    {
+        return match ($this) {
+            self::Checking, self::Savings => 1,
+            self::CreditCard => -1,
+            self::Loan, self::Other => 0,
+        };
+    }
 }
