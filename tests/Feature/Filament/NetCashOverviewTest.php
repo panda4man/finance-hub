@@ -188,6 +188,99 @@ it('shows a negative liquid net cash when card debt exceeds cash on hand', funct
         ->assertSee('-$1,400.00'); // net cash: 100 - 500 - 1000
 });
 
+it('counts an investment account toward net cash while leaving it out of liquid net cash', function () {
+    $user = User::factory()->create();
+    $connection = makeNetCashConnection($user);
+
+    makeNetCashAccount($connection, ['name' => 'Checking', 'account_type' => AccountType::Checking, 'current_balance' => '5000.00']);
+    makeNetCashAccount($connection, ['name' => 'Credit Card', 'account_type' => AccountType::CreditCard, 'current_balance' => '-800.00']);
+    makeNetCashAccount($connection, ['name' => 'Thrivent IRA', 'account_type' => AccountType::Investment, 'current_balance' => '80000.00']);
+
+    actingAs($user);
+
+    Livewire::test(NetCashOverview::class)
+        ->assertSee('$84,200.00') // net cash: 5000 - 800 + 80000, investment included
+        ->assertSee('$4,200.00') // liquid net cash: 5000 - 800, investment excluded
+        ->assertSee('$80,000.00') // long-term savings
+        ->assertSee('$5,000.00') // assets, investment not counted here either
+        ->assertSee('-$800.00'); // debts, rendered negative
+});
+
+it('keeps an investment account out of the loan debt excluded description', function () {
+    $user = User::factory()->create();
+    $connection = makeNetCashConnection($user);
+
+    makeNetCashAccount($connection, ['name' => 'Thrivent IRA', 'account_type' => AccountType::Investment, 'current_balance' => '80000.00']);
+
+    actingAs($user);
+
+    Livewire::test(NetCashOverview::class)
+        ->assertDontSee('loan debt excluded');
+});
+
+it('shows the long-term savings tile as the sum of investment account balances', function () {
+    $user = User::factory()->create();
+    $connection = makeNetCashConnection($user);
+
+    makeNetCashAccount($connection, ['name' => 'Thrivent IRA', 'account_type' => AccountType::Investment, 'current_balance' => '80000.00']);
+    makeNetCashAccount($connection, ['name' => 'Brokerage', 'account_type' => AccountType::Investment, 'current_balance' => '15000.00']);
+
+    actingAs($user);
+
+    Livewire::test(NetCashOverview::class)
+        ->assertSee('$95,000.00');
+});
+
+it('describes the long-term savings tile with the investment account count', function () {
+    $user = User::factory()->create();
+    $connection = makeNetCashConnection($user);
+
+    makeNetCashAccount($connection, ['name' => 'Thrivent IRA', 'account_type' => AccountType::Investment, 'current_balance' => '80000.00']);
+
+    actingAs($user);
+
+    Livewire::test(NetCashOverview::class)
+        ->assertSee('1 investment, not spendable today');
+});
+
+it('describes long-term savings as empty when there are no investment accounts', function () {
+    $user = User::factory()->create();
+    $connection = makeNetCashConnection($user);
+
+    makeNetCashAccount($connection, ['name' => 'Checking', 'account_type' => AccountType::Checking, 'current_balance' => '1000.00']);
+
+    actingAs($user);
+
+    Livewire::test(NetCashOverview::class)
+        ->assertSee('No investment accounts yet');
+});
+
+it('coerces an investment balance stored as a negative number into a positive long-term savings contribution', function () {
+    $user = User::factory()->create();
+    $connection = makeNetCashConnection($user);
+
+    makeNetCashAccount($connection, ['name' => 'Thrivent IRA', 'account_type' => AccountType::Investment, 'current_balance' => '-80000.00']);
+
+    actingAs($user);
+
+    Livewire::test(NetCashOverview::class)
+        ->assertSee('$80,000.00');
+});
+
+it('leaves the debts tile unchanged when an investment account is present', function () {
+    $user = User::factory()->create();
+    $connection = makeNetCashConnection($user);
+
+    makeNetCashAccount($connection, ['name' => 'Credit Card', 'account_type' => AccountType::CreditCard, 'current_balance' => '-100.00']);
+    makeNetCashAccount($connection, ['name' => 'Mortgage', 'account_type' => AccountType::Loan, 'current_balance' => '1000.00']);
+    makeNetCashAccount($connection, ['name' => 'Thrivent IRA', 'account_type' => AccountType::Investment, 'current_balance' => '80000.00']);
+
+    actingAs($user);
+
+    Livewire::test(NetCashOverview::class)
+        ->assertSee('2 credit/loan');
+});
+
 it('excludes another user\'s accounts from every stat', function () {
     $user = User::factory()->create();
     $stranger = User::factory()->create();

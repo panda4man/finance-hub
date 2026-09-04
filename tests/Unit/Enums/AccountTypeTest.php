@@ -23,6 +23,10 @@ it('returns correct icon for Loan account type', function () {
     expect(AccountType::Loan->icon())->toBe(Heroicon::OutlinedBanknotes);
 });
 
+it('returns correct icon for Investment account type', function () {
+    expect(AccountType::Investment->icon())->toBe(Heroicon::OutlinedChartPie);
+});
+
 it('returns correct label for Checking account type', function () {
     expect(AccountType::Checking->label())->toBe('Checking');
 });
@@ -47,6 +51,14 @@ it('exposes loan as the backed value for the Loan account type', function () {
     expect(AccountType::Loan->value)->toBe('loan');
 });
 
+it('returns correct label for Investment account type', function () {
+    expect(AccountType::Investment->label())->toBe('Investment');
+});
+
+it('exposes investment as the backed value for the Investment account type', function () {
+    expect(AccountType::Investment->value)->toBe('investment');
+});
+
 it('returns +1 net cash sign for Checking account type', function () {
     expect(AccountType::Checking->netCashSign())->toBe(1);
 });
@@ -65,6 +77,10 @@ it('returns 0 net cash sign for Other account type', function () {
 
 it('returns -1 net cash sign for Loan account type', function () {
     expect(AccountType::Loan->netCashSign())->toBe(-1);
+});
+
+it('returns +1 net cash sign for Investment account type', function () {
+    expect(AccountType::Investment->netCashSign())->toBe(1);
 });
 
 it('returns a defined net cash sign for every case, so a new case fails here first', function () {
@@ -93,18 +109,21 @@ it('returns 0 liquid net cash sign for Other account type', function () {
     expect(AccountType::Other->liquidNetCashSign())->toBe(0);
 });
 
+it('returns 0 liquid net cash sign for Investment account type, so an IRA never lands in liquid cash', function () {
+    expect(AccountType::Investment->liquidNetCashSign())->toBe(0);
+});
+
 it('returns a defined liquid net cash sign for every case, so a new case fails here first', function () {
     foreach (AccountType::cases() as $case) {
         expect($case->liquidNetCashSign())->toBeInt();
     }
 });
 
-it('returns the same liquid net cash sign as netCashSign for every case except Loan', function () {
-    foreach (AccountType::cases() as $case) {
-        if ($case === AccountType::Loan) {
-            continue;
-        }
+it('diverges from netCashSign only for Loan and Investment, the two types held out of liquid cash', function () {
+    $diverging = array_values(array_filter(
+        AccountType::cases(),
+        fn (AccountType $case): bool => $case->liquidNetCashSign() !== $case->netCashSign(),
+    ));
 
-        expect($case->liquidNetCashSign())->toBe($case->netCashSign());
-    }
+    expect($diverging)->toEqualCanonicalizing([AccountType::Loan, AccountType::Investment]);
 });

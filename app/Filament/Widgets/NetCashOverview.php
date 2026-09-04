@@ -52,6 +52,10 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
                 ->description($this->liquidNetCashDescription($totals))
                 ->descriptionIcon(Heroicon::OutlinedWallet)
                 ->color($totals['liquidNetCents'] >= 0 ? 'success' : 'danger'),
+            Stat::make('Long-term savings', $this->formatCents($totals['investmentCents']))
+                ->description($this->longTermSavingsDescription($totals))
+                ->descriptionIcon(Heroicon::OutlinedChartPie)
+                ->color('info'),
             Stat::make('Assets', $this->formatCents($totals['assetCents']))
                 ->description("{$totals['assetCount']} checking/savings, before debt")
                 ->color('success'),
@@ -166,7 +170,7 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
      * enum->sign mapping as a hard-coded IN (...) list, duplicating
      * AccountType::netCashSign() and losing exhaustiveness checking.
      *
-     * @return array{netCents: int, liquidNetCents: int, assetCents: int, debtCents: int, loanCents: int, assetCount: int, debtCount: int, unclassifiedCount: int, asOf: ?Carbon}
+     * @return array{netCents: int, liquidNetCents: int, assetCents: int, debtCents: int, loanCents: int, investmentCents: int, assetCount: int, debtCount: int, investmentCount: int, unclassifiedCount: int, asOf: ?Carbon}
      */
     private function aggregateTotals(): array
     {
@@ -174,8 +178,10 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
         $debtCents = 0;
         $liquidNetCents = 0;
         $loanCents = 0;
+        $investmentCents = 0;
         $assetCount = 0;
         $debtCount = 0;
+        $investmentCount = 0;
         $unclassifiedCount = 0;
         $asOf = null;
 
@@ -196,28 +202,34 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
                 continue;
             }
 
+            $liquidSign = $account->account_type->liquidNetCashSign();
+
             // decimal:2 casts current_balance to a string; never accumulate
             // as floats. abs() is where the sign coercion happens — the
             // provider's sign is discarded and netCashSign() decides.
             $cents = abs((int) round(((float) ($account->current_balance ?? '0')) * 100));
 
+            // The pair of signs, not a named case, is what separates a bucket the
+            // liquid total keeps from one it deliberately excludes (Loan, Investment)
+            // — so classification stays in the enum, not restated here.
             if ($sign > 0) {
-                $assetCents += $cents;
-                $assetCount++;
+                if ($liquidSign === 0) {
+                    $investmentCents += $cents;
+                    $investmentCount++;
+                } else {
+                    $assetCents += $cents;
+                    $assetCount++;
+                }
             } else {
                 $debtCents += $cents;
                 $debtCount++;
+
+                if ($liquidSign === 0) {
+                    $loanCents += $cents;
+                }
             }
 
-            $liquidSign = $account->account_type->liquidNetCashSign();
             $liquidNetCents += $liquidSign * $cents;
-
-            // Debt the liquid total deliberately excludes (Loan). Derived from the
-            // enum's two signs rather than naming Loan here, so classification
-            // stays in one place — see aggregateTotals()'s docblock.
-            if ($liquidSign === 0) {
-                $loanCents += $cents;
-            }
 
             if ($account->balances_updated_at !== null
                 && ($asOf === null || $account->balances_updated_at->gt($asOf))) {
@@ -226,20 +238,22 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
         }
 
         return [
-            'netCents' => $assetCents - $debtCents,
+            'netCents' => $assetCents + $investmentCents - $debtCents,
             'liquidNetCents' => $liquidNetCents,
             'assetCents' => $assetCents,
             'debtCents' => $debtCents,
             'loanCents' => $loanCents,
+            'investmentCents' => $investmentCents,
             'assetCount' => $assetCount,
             'debtCount' => $debtCount,
+            'investmentCount' => $investmentCount,
             'unclassifiedCount' => $unclassifiedCount,
             'asOf' => $asOf,
         ];
     }
 
     /**
-     * @param  array{netCents: int, liquidNetCents: int, assetCents: int, debtCents: int, loanCents: int, assetCount: int, debtCount: int, unclassifiedCount: int, asOf: ?Carbon}  $totals
+     * @param  array{netCents: int, liquidNetCents: int, assetCents: int, debtCents: int, loanCents: int, investmentCents: int, assetCount: int, debtCount: int, investmentCount: int, unclassifiedCount: int, asOf: ?Carbon}  $totals
      */
     private function netCashDescription(array $totals): string
     {
@@ -255,7 +269,7 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
     }
 
     /**
-     * @param  array{netCents: int, liquidNetCents: int, assetCents: int, debtCents: int, loanCents: int, assetCount: int, debtCount: int, unclassifiedCount: int, asOf: ?Carbon}  $totals
+     * @param  array{netCents: int, liquidNetCents: int, assetCents: int, debtCents: int, loanCents: int, investmentCents: int, assetCount: int, debtCount: int, investmentCount: int, unclassifiedCount: int, asOf: ?Carbon}  $totals
      */
     private function liquidNetCashDescription(array $totals): string
     {
@@ -273,6 +287,18 @@ class NetCashOverview extends StatsOverviewWidget implements HasActions
         }
 
         return $parts === [] ? 'Same as assets, no card debt' : implode('; ', $parts);
+    }
+
+    /**
+     * @param  array{netCents: int, liquidNetCents: int, assetCents: int, debtCents: int, loanCents: int, investmentCents: int, assetCount: int, debtCount: int, investmentCount: int, unclassifiedCount: int, asOf: ?Carbon}  $totals
+     */
+    private function longTermSavingsDescription(array $totals): string
+    {
+        if ($totals['investmentCount'] === 0) {
+            return 'No investment accounts yet';
+        }
+
+        return "{$totals['investmentCount']} investment, not spendable today";
     }
 
     private function formatCents(int $cents): string
