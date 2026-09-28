@@ -1,5 +1,8 @@
 <?php
 
+use App\Models\Account;
+use App\Models\Connection;
+use App\Models\Transaction;
 use App\Models\User;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Route;
@@ -92,7 +95,7 @@ it('initializes the server for a viewAny token whose owner has the permission', 
     expect($response->headers->has('MCP-Session-Id'))->toBeTrue();
 });
 
-it('lists an empty tool set once authenticated', function () {
+it('lists the finance tools once authenticated', function () {
     $user = User::factory()->create();
     mcpGrantViewAny($user);
     $token = mcpTokenFor($user);
@@ -104,7 +107,13 @@ it('lists an empty tool set once authenticated', function () {
     ]);
 
     $response->assertOk();
-    expect($response->json('result.tools'))->toBe([]);
+    expect(collect($response->json('result.tools'))->pluck('name')->all())->toBe([
+        'list_accounts',
+        'search_merchants',
+        'search_transactions',
+        'find_repeat_purchases',
+        'spending_trend',
+    ]);
 });
 
 it('returns 403 JSON when the token lacks the viewAny ability', function () {
@@ -153,4 +162,30 @@ it('shares the api rate limit bucket', function () {
 
     withToken($token)->postJson('/mcp/finance', mcpInitializePayload())
         ->assertStatus(429);
+});
+
+it('calls search_transactions over HTTP scoped to the token owner', function () {
+    $user = User::factory()->create();
+    $stranger = User::factory()->create();
+    mcpGrantViewAny($user);
+    $token = mcpTokenFor($user);
+
+    $ownerAccount = Account::factory()->for(Connection::factory(['user_id' => $user->id]))->create();
+    $strangerAccount = Account::factory()->for(Connection::factory(['user_id' => $stranger->id]))->create();
+
+    $ownerTxn = Transaction::factory()->for($ownerAccount)->create(['name' => 'Mine']);
+    Transaction::factory()->for($strangerAccount)->create(['name' => 'Not mine']);
+
+    $response = withToken($token)->postJson('/mcp/finance', [
+        'jsonrpc' => '2.0',
+        'id' => 3,
+        'method' => 'tools/call',
+        'params' => ['name' => 'search_transactions', 'arguments' => []],
+    ]);
+
+    $response->assertOk();
+    expect($response->json('result.isError'))->toBeFalse();
+
+    $ids = collect($response->json('result.structuredContent.transactions'))->pluck('id')->all();
+    expect($ids)->toBe([$ownerTxn->id]);
 });

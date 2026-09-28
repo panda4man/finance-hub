@@ -30,8 +30,14 @@ it('explains the amount sign convention and hidden/pending defaults in its instr
     expect($ctx->instructions)->toContain('include_pending');
 });
 
-it('registers no tools yet', function () {
+it('registers the finance tools', function () {
     $ctx = mcpServerContext();
 
-    expect($ctx->tools())->toBeEmpty();
+    expect($ctx->tools()->map->name()->values()->all())->toBe([
+        'list_accounts',
+        'search_merchants',
+        'search_transactions',
+        'find_repeat_purchases',
+        'spending_trend',
+    ]);
 });

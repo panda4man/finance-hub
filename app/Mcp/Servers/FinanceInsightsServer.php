@@ -2,6 +2,11 @@
 
 namespace App\Mcp\Servers;
 
+use App\Mcp\Tools\FindRepeatPurchases;
+use App\Mcp\Tools\ListAccounts;
+use App\Mcp\Tools\SearchMerchants;
+use App\Mcp\Tools\SearchTransactions;
+use App\Mcp\Tools\SpendingTrend;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Version;
@@ -22,7 +27,11 @@ class FinanceInsightsServer extends Server
      * @var array<int, class-string<Tool>>
      */
     protected array $tools = [
-        //
+        ListAccounts::class,
+        SearchMerchants::class,
+        SearchTransactions::class,
+        FindRepeatPurchases::class,
+        SpendingTrend::class,
     ];
 
     protected string $instructions = <<<'MARKDOWN'

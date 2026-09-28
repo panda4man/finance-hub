@@ -120,7 +120,7 @@ final class TransactionQueryService
      * so user-supplied merchant/institution text can't inject a pattern.
      * Relies on backslash being the default LIKE escape character (pgsql, MySQL).
      */
-    private function escapeLike(string $value): string
+    public function escapeLike(string $value): string
     {
         return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $value);
     }
