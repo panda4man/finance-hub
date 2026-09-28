@@ -3,14 +3,17 @@
 namespace App\Models;
 
 use App\Enums\ConnectionStatus;
+use Database\Factories\ConnectionFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Connection extends Model
 {
-    use HasUuids;
+    /** @use HasFactory<ConnectionFactory> */
+    use HasFactory, HasUuids;
 
     protected $fillable = [
         'user_id',

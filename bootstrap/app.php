@@ -22,14 +22,15 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         // No `login` named route exists (Filament owns panel auth), so the
-        // default guest redirect would 500 on an unauthenticated api/* hit.
+        // default guest redirect would 500 on an unauthenticated api/* or
+        // mcp/* hit.
         $middleware->redirectGuestsTo(
-            fn (Request $request) => $request->is('api/*') ? null : route('filament.admin.auth.login')
+            fn (Request $request) => $request->is('api/*', 'mcp/*') ? null : route('filament.admin.auth.login')
         );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*'),
+            fn (Request $request) => $request->is('api/*', 'mcp/*'),
         );
     })
     ->withSchedule(function (Schedule $schedule): void {
