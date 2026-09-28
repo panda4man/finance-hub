@@ -7,9 +7,17 @@ use App\Models\Connection;
 use App\Models\Transaction;
 use App\Models\User;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 use function Pest\Laravel\withToken;
+
+// shield:generate produces a real TransactionPolicy gated on Spatie
+// permissions that plain test users don't hold. These tests exercise
+// query scoping/filtering behavior, not the policy layer — that's covered
+// separately in TransactionPolicyEnforcementTest, which runs without this
+// bypass — so bypass it here.
+beforeEach(fn () => Gate::before(fn () => true));
 
 function idxConnectionFor(User $user): Connection
 {
@@ -43,7 +51,7 @@ function idxTransactionRow(Account $account, Connection $connection, array $over
     ], $overrides));
 }
 
-function idxTokenFor(User $user, array $abilities = ['transactions:read'], ?CarbonInterface $expiresAt = null): string
+function idxTokenFor(User $user, array $abilities = ['viewAny'], ?CarbonInterface $expiresAt = null): string
 {
     return $user->createToken('test', $abilities, $expiresAt)->plainTextToken;
 }

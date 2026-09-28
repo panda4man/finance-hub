@@ -2,12 +2,18 @@
 
 use App\Actions\ApiTokens\RotateApiTokenAction;
 use App\Models\User;
+use Illuminate\Support\Facades\Gate;
 use Laravel\Sanctum\NewAccessToken;
 use Laravel\Sanctum\PersonalAccessToken;
 
+// shield:generate produces a real TransactionPolicy gated on Spatie
+// permissions that plain test users don't hold. These tests exercise
+// rotation mechanics, not the policy layer, so bypass it here.
+beforeEach(fn () => Gate::before(fn () => true));
+
 it('removes old token from database', function () {
     $user = User::factory()->create();
-    $newAccessToken = $user->createToken('Original', ['transactions:read']);
+    $newAccessToken = $user->createToken('Original', ['viewAny']);
     $old = $newAccessToken->accessToken;
     $oldId = $old->id;
 
@@ -18,7 +24,7 @@ it('removes old token from database', function () {
 
 it('returns a NewAccessToken instance', function () {
     $user = User::factory()->create();
-    $newAccessToken = $user->createToken('Original', ['transactions:read']);
+    $newAccessToken = $user->createToken('Original', ['viewAny']);
     $old = $newAccessToken->accessToken;
 
     $result = (new RotateApiTokenAction)->execute($old);
@@ -28,7 +34,7 @@ it('returns a NewAccessToken instance', function () {
 
 it('preserves token name on rotation', function () {
     $user = User::factory()->create();
-    $newAccessToken = $user->createToken('Original', ['transactions:read']);
+    $newAccessToken = $user->createToken('Original', ['viewAny']);
     $old = $newAccessToken->accessToken;
 
     $new = (new RotateApiTokenAction)->execute($old);
@@ -39,18 +45,18 @@ it('preserves token name on rotation', function () {
 
 it('preserves abilities on rotation', function () {
     $user = User::factory()->create();
-    $newAccessToken = $user->createToken('Original', ['transactions:read']);
+    $newAccessToken = $user->createToken('Original', ['viewAny']);
     $old = $newAccessToken->accessToken;
 
     $new = (new RotateApiTokenAction)->execute($old);
 
     $newStored = $new->accessToken;
-    expect($newStored->abilities)->toBe(['transactions:read']);
+    expect($newStored->abilities)->toBe(['viewAny']);
 });
 
 it('old plaintext token is rejected by authenticated endpoints', function () {
     $user = User::factory()->create();
-    $newAccessToken = $user->createToken('Original', ['transactions:read']);
+    $newAccessToken = $user->createToken('Original', ['viewAny']);
     $oldPlain = $newAccessToken->plainTextToken;
     $old = $newAccessToken->accessToken;
 
@@ -63,7 +69,7 @@ it('old plaintext token is rejected by authenticated endpoints', function () {
 
 it('new plaintext token is accepted by authenticated endpoints', function () {
     $user = User::factory()->create();
-    $newAccessToken = $user->createToken('Original', ['transactions:read']);
+    $newAccessToken = $user->createToken('Original', ['viewAny']);
     $old = $newAccessToken->accessToken;
 
     $new = (new RotateApiTokenAction)->execute($old);
@@ -76,7 +82,7 @@ it('new plaintext token is accepted by authenticated endpoints', function () {
 it('preserves lifetime when token has expiry date', function () {
     $user = User::factory()->create();
     $originalExpiresAt = now()->addDays(90);
-    $newAccessToken = $user->createToken('Expiring', ['transactions:read'], $originalExpiresAt);
+    $newAccessToken = $user->createToken('Expiring', ['viewAny'], $originalExpiresAt);
     $old = $newAccessToken->accessToken;
 
     $new = (new RotateApiTokenAction)->execute($old);
@@ -93,7 +99,7 @@ it('preserves lifetime when token has expiry date', function () {
 
 it('preserves null expiry on rotation', function () {
     $user = User::factory()->create();
-    $newAccessToken = $user->createToken('Never Expires', ['transactions:read'], null);
+    $newAccessToken = $user->createToken('Never Expires', ['viewAny'], null);
     $old = $newAccessToken->accessToken;
 
     $new = (new RotateApiTokenAction)->execute($old);
@@ -115,7 +121,7 @@ it('handles tokens with different abilities correctly', function () {
 
 it('creates new token before deleting old one in a transaction', function () {
     $user = User::factory()->create();
-    $newAccessToken = $user->createToken('Original', ['transactions:read']);
+    $newAccessToken = $user->createToken('Original', ['viewAny']);
     $old = $newAccessToken->accessToken;
     $oldId = $old->id;
     $tokenCountBefore = $user->tokens()->count();
@@ -132,7 +138,7 @@ it('creates new token before deleting old one in a transaction', function () {
 
 it('rotated token can be used immediately after rotation', function () {
     $user = User::factory()->create();
-    $newAccessToken = $user->createToken('Original', ['transactions:read']);
+    $newAccessToken = $user->createToken('Original', ['viewAny']);
     $old = $newAccessToken->accessToken;
 
     $new = (new RotateApiTokenAction)->execute($old);

@@ -1,10 +1,16 @@
 <?php
 
 use App\Models\User;
+use Illuminate\Support\Facades\Gate;
 
 use function Pest\Laravel\withToken;
 
-function rateLimitTokenFor(User $user, string $name = 'test', array $abilities = ['transactions:read']): string
+// shield:generate produces a real TransactionPolicy gated on Spatie
+// permissions that plain test users don't hold. These tests exercise the
+// rate limiter, not the policy layer, so bypass it here.
+beforeEach(fn () => Gate::before(fn () => true));
+
+function rateLimitTokenFor(User $user, string $name = 'test', array $abilities = ['viewAny']): string
 {
     return $user->createToken($name, $abilities)->plainTextToken;
 }

@@ -8,27 +8,27 @@ use Laravel\Sanctum\NewAccessToken;
 it('returns a NewAccessToken instance', function () {
     $user = User::factory()->create();
 
-    $result = (new IssueApiTokenAction)->execute($user, 'My Key', null);
+    $result = (new IssueApiTokenAction)->execute($user, 'My Key', ['viewAny'], null);
 
     expect($result)->toBeInstanceOf(NewAccessToken::class);
 });
 
-it('stores token with provided name and transactions:read ability', function () {
+it('stores token with provided name and abilities', function () {
     $user = User::factory()->create();
 
-    $result = (new IssueApiTokenAction)->execute($user, 'My Key', null);
+    $result = (new IssueApiTokenAction)->execute($user, 'My Key', ['viewAny', 'view'], null);
 
     $storedToken = $user->tokens()->first();
 
     expect($storedToken)->not()->toBeNull();
     expect($storedToken->name)->toBe('My Key');
-    expect($storedToken->abilities)->toBe(['transactions:read']);
+    expect($storedToken->abilities)->toBe(['viewAny', 'view']);
 });
 
 it('stores token with null expires_at when not provided', function () {
     $user = User::factory()->create();
 
-    $result = (new IssueApiTokenAction)->execute($user, 'My Key', null);
+    $result = (new IssueApiTokenAction)->execute($user, 'My Key', ['viewAny'], null);
 
     $storedToken = $user->tokens()->first();
 
@@ -39,7 +39,7 @@ it('stores token with specified expires_at timestamp', function () {
     $user = User::factory()->create();
     $expiresAt = now()->addDays(90);
 
-    $result = (new IssueApiTokenAction)->execute($user, 'Expiring Token', $expiresAt);
+    $result = (new IssueApiTokenAction)->execute($user, 'Expiring Token', ['viewAny'], $expiresAt);
 
     $storedToken = $user->tokens()->first();
 
@@ -51,7 +51,7 @@ it('handles different expiry times correctly', function () {
     $user = User::factory()->create();
     $expiresAt = Carbon::parse('2026-12-31 23:59:59');
 
-    $result = (new IssueApiTokenAction)->execute($user, 'End of Year', $expiresAt);
+    $result = (new IssueApiTokenAction)->execute($user, 'End of Year', ['viewAny'], $expiresAt);
 
     $storedToken = $user->tokens()->first();
 

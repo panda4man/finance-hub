@@ -35,6 +35,7 @@ it('creates a key, shows the plaintext once, and the key authenticates', functio
     $component = Livewire::test(ApiKeys::class)
         ->callTableAction('create', data: [
             'name' => 'CLI',
+            'abilities' => ['viewAny'],
             'expires_in' => '90',
         ]);
 
@@ -57,6 +58,7 @@ it('does not expose the plaintext token again after the modal closes', function 
     $component = Livewire::test(ApiKeys::class)
         ->callTableAction('create', data: [
             'name' => 'CLI',
+            'abilities' => ['viewAny'],
             'expires_in' => '90',
         ]);
 
@@ -82,7 +84,7 @@ it('rotates a key: old row is replaced, new row keeps name and abilities', funct
     $owner = User::factory()->create();
     actingAs($owner);
 
-    $newAccessToken = $owner->createToken('CLI', ['transactions:read']);
+    $newAccessToken = $owner->createToken('CLI', ['viewAny']);
     $token = $newAccessToken->accessToken;
 
     $component = Livewire::test(ApiKeys::class)
@@ -95,14 +97,14 @@ it('rotates a key: old row is replaced, new row keeps name and abilities', funct
 
     $newRow = PersonalAccessToken::query()->where('tokenable_id', $owner->id)->sole();
     expect($newRow->name)->toBe('CLI');
-    expect($newRow->abilities)->toBe(['transactions:read']);
+    expect($newRow->abilities)->toBe(['viewAny']);
 });
 
 it('revokes a key: it stops working and disappears from the table', function () {
     $owner = User::factory()->create();
     actingAs($owner);
 
-    $newAccessToken = $owner->createToken('CLI', ['transactions:read']);
+    $newAccessToken = $owner->createToken('CLI', ['viewAny']);
     $plain = $newAccessToken->plainTextToken;
     $token = $newAccessToken->accessToken;
 
@@ -121,6 +123,7 @@ it('requires a name to create a key', function () {
     Livewire::test(ApiKeys::class)
         ->callTableAction('create', data: [
             'name' => '',
+            'abilities' => ['viewAny'],
             'expires_in' => '90',
         ])
         ->assertHasTableActionErrors(['name' => 'required']);

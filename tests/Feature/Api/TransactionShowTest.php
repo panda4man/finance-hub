@@ -6,9 +6,17 @@ use App\Models\Connection;
 use App\Models\Transaction;
 use App\Models\User;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 use function Pest\Laravel\withToken;
+
+// shield:generate produces a real TransactionPolicy gated on Spatie
+// permissions that plain test users don't hold. These tests exercise
+// ownership scoping, not the policy layer — that's covered separately in
+// TransactionPolicyEnforcementTest, which runs without this bypass — so
+// bypass it here.
+beforeEach(fn () => Gate::before(fn () => true));
 
 function showConnectionFor(User $user): Connection
 {
@@ -42,7 +50,7 @@ function showTransactionRow(Account $account, Connection $connection, array $ove
     ], $overrides));
 }
 
-function showTokenFor(User $user, array $abilities = ['transactions:read'], ?CarbonInterface $expiresAt = null): string
+function showTokenFor(User $user, array $abilities = ['view'], ?CarbonInterface $expiresAt = null): string
 {
     return $user->createToken('test', $abilities, $expiresAt)->plainTextToken;
 }
@@ -85,6 +93,19 @@ it('returns 404 for syntactically invalid UUID in URL', function () {
     $response = withToken($token)->getJson('/api/transactions/not-a-uuid');
 
     $response->assertNotFound();
+});
+
+it('returns 403 when token lacks the view ability', function () {
+    $user = User::factory()->create();
+    $connection = showConnectionFor($user);
+    $account = showAccountFor($connection);
+    $transaction = showTransactionRow($account, $connection);
+
+    $token = showTokenFor($user, ['viewAny']);
+
+    $response = withToken($token)->getJson("/api/transactions/{$transaction->id}");
+
+    $response->assertForbidden();
 });
 
 it('returns 404 for transaction with removed_at set', function () {

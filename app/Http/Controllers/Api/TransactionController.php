@@ -9,11 +9,17 @@ use App\Models\Transaction;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Gate;
 
 class TransactionController extends Controller
 {
     public function index(IndexTransactionsRequest $request): AnonymousResourceCollection
     {
+        // Token abilities (routes/api.php) scope what this key can do; this
+        // scopes what the owning user account can do, via the same
+        // TransactionPolicy Filament's own UI already enforces.
+        Gate::authorize('viewAny', Transaction::class);
+
         $query = $this->ownedQuery($request);
 
         if ($dateFrom = $request->validated('date_from')) {
@@ -42,6 +48,8 @@ class TransactionController extends Controller
     public function show(Request $request, string $transaction): TransactionResource
     {
         $model = $this->ownedQuery($request)->findOrFail($transaction);
+
+        Gate::authorize('view', $model);
 
         return TransactionResource::make($model);
     }

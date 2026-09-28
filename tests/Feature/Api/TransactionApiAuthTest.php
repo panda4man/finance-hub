@@ -6,11 +6,19 @@ use App\Models\Connection;
 use App\Models\Transaction;
 use App\Models\User;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\getJson;
 use function Pest\Laravel\withToken;
+
+// shield:generate produces a real TransactionPolicy gated on Spatie
+// permissions that plain test users don't hold. These tests exercise auth
+// (Sanctum token validity/abilities), not the policy layer — that's covered
+// separately in TransactionIndexTest's/TransactionShowTest's policy-denial
+// cases — so bypass it here.
+beforeEach(fn () => Gate::before(fn () => true));
 
 function apiConnectionFor(User $user): Connection
 {
@@ -44,7 +52,7 @@ function apiTransactionRow(Account $account, Connection $connection, array $over
     ], $overrides));
 }
 
-function apiTokenFor(User $user, array $abilities = ['transactions:read'], ?CarbonInterface $expiresAt = null): string
+function apiTokenFor(User $user, array $abilities = ['viewAny'], ?CarbonInterface $expiresAt = null): string
 {
     return $user->createToken('test', $abilities, $expiresAt)->plainTextToken;
 }
@@ -66,7 +74,7 @@ it('returns 401 when token is garbage (not a real token)', function () {
 
 it('returns 401 when PersonalAccessToken row is deleted after issuing', function () {
     $user = User::factory()->create();
-    $token = $user->createToken('test', ['transactions:read']);
+    $token = $user->createToken('test', ['viewAny']);
     $plain = $token->plainTextToken;
     $token->accessToken->delete();
 
@@ -77,15 +85,15 @@ it('returns 401 when PersonalAccessToken row is deleted after issuing', function
 it('returns 401 when token has expired', function () {
     $user = User::factory()->create();
     $expiresAt = now()->subDay();
-    $token = apiTokenFor($user, ['transactions:read'], $expiresAt);
+    $token = apiTokenFor($user, ['viewAny'], $expiresAt);
 
     withToken($token)->getJson('/api/transactions')
         ->assertUnauthorized();
 });
 
-it('returns 403 when token lacks transactions:read ability', function () {
+it('returns 403 when token lacks the viewAny ability', function () {
     $user = User::factory()->create();
-    $token = apiTokenFor($user, ['other:ability']);
+    $token = apiTokenFor($user, ['view']);
 
     withToken($token)->getJson('/api/transactions')
         ->assertForbidden();

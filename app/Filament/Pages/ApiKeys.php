@@ -9,6 +9,7 @@ use App\Support\CurrentOwner;
 use BackedEnum;
 use Carbon\CarbonInterface;
 use Filament\Actions\Action;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Pages\Page;
@@ -36,6 +37,20 @@ class ApiKeys extends Page implements HasTable
     protected string $view = 'filament.pages.api-keys';
 
     /**
+     * Ability names match TransactionPolicy's own method names 1:1 — each
+     * one is checked both as a Sanctum token ability (routes/api.php) and,
+     * via that same Policy, as the owner's Spatie permission
+     * (Gate::authorize in TransactionController). Only the two the API
+     * actually exposes today; extend this when write endpoints exist.
+     *
+     * @var array<string, string>
+     */
+    private const ABILITIES = [
+        'viewAny' => 'List transactions',
+        'view' => 'View a single transaction',
+    ];
+
+    /**
      * Set right after issuing/rotating a key so the blade view can render it
      * once, in a dismissible banner. Sanctum never stores or returns the
      * plaintext again after this request, so this is the only chance to
@@ -56,7 +71,7 @@ class ApiKeys extends Page implements HasTable
                     ->searchable(),
                 TextColumn::make('abilities')
                     ->badge()
-                    ->formatStateUsing(fn (string $state): string => str($state)->headline()->toString()),
+                    ->formatStateUsing(fn (string $state): string => self::ABILITIES[$state] ?? str($state)->headline()->toString()),
                 TextColumn::make('created_at')
                     ->since(),
                 TextColumn::make('last_used_at')
@@ -94,6 +109,11 @@ class ApiKeys extends Page implements HasTable
                 TextInput::make('name')
                     ->required()
                     ->maxLength(255),
+                CheckboxList::make('abilities')
+                    ->options(self::ABILITIES)
+                    ->default(array_keys(self::ABILITIES))
+                    ->required()
+                    ->columns(1),
                 Select::make('expires_in')
                     ->label('Expires')
                     ->options([
@@ -113,6 +133,7 @@ class ApiKeys extends Page implements HasTable
                 $newToken = app(IssueApiTokenAction::class)->execute(
                     User::findOrFail(CurrentOwner::id()),
                     $data['name'],
+                    array_values($data['abilities']),
                     $expiresAt,
                 );
 
