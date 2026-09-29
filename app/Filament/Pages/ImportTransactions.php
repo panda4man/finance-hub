@@ -173,7 +173,7 @@ class ImportTransactions extends Page implements HasForms
     {
         return HeaderAction::make('import')
             ->label('Import')
-            ->submit('import');
+            ->action('import');
     }
 
     /**

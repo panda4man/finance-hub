@@ -61,3 +61,8 @@ CSV;
     expect(Transaction::first()->name)->toBe('COFFEE');
     expect((float) Transaction::first()->amount)->toBe(10.50);
 });
+
+it('renders the import button as a click action, not a submit button with no enclosing form', function () {
+    Livewire::test(ImportTransactions::class)
+        ->assertSeeHtml('wire:click="import"');
+});
