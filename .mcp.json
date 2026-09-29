@@ -13,6 +13,13 @@
         "boost:mcp"
       ]
     },
+    "finance-insights": {
+      "type": "http",
+      "url": "${FINANCE_HUB_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${FINANCE_HUB_API_TOKEN}"
+      }
+    },
     "bridge-api-guide": {
       "command": "uvx",
       "args": [

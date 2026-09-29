@@ -106,38 +106,6 @@ server.registerTool(
 );
 
 server.registerTool(
-  'list_transactions',
-  {
-    title: 'List transactions',
-    description: 'List transactions, paginated and sortable.',
-    inputSchema: {
-      limit: z.number().int().positive().max(200).optional(),
-      offset: z.number().int().min(0).optional(),
-      sortBy: z.enum(['date', 'amount', 'name', 'merchantName']).optional(),
-      order: z.enum(['asc', 'desc']).optional(),
-    },
-  },
-  async ({ limit, offset, sortBy, order }) => {
-    try {
-      const result = await artisan(
-        [
-          'transactions:list',
-          '--json',
-          ...opt('--limit', limit),
-          ...opt('--offset', offset),
-          ...opt('--sort-by', sortBy),
-          ...opt('--order', order),
-        ],
-        { timeoutMs: 30_000 },
-      );
-      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-    } catch (err) {
-      return { isError: true, content: [{ type: 'text', text: errorMessage(err) }] };
-    }
-  },
-);
-
-server.registerTool(
   'recategorize_transactions',
   {
     title: 'Recategorize all transactions',
